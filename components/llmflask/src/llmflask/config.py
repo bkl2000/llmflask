@@ -60,14 +60,15 @@ def prepare_database_path(path: str) -> str:
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 SEARXNG_URL = os.getenv("SEARXNG_URL", "http://127.0.0.1:8071")
-HOST = os.getenv("LLMFLASK_HOST", "0.0.0.0")
+HOST = os.getenv("LLMFLASK_HOST", "127.0.0.1")
 PORT = int(os.getenv("LLMFLASK_PORT", "5000"))
+TRUSTED_HOSTS = os.getenv("LLMFLASK_TRUSTED_HOSTS", "")
 DATABASE = configured_database_path()
 DEFAULT_USER = os.getenv("LLMFLASK_USER", "default")
 NUM_CTX = int(os.getenv("LLMFLASK_NUM_CTX", "8192"))
 MAX_CONTEXT_MESSAGES = int(os.getenv("LLMFLASK_MAX_CONTEXT_MSGS", "30"))
 
-WORKBENCH_ENABLED = os.getenv("LLMFLASK_WORKBENCH_ENABLED", "1") != "0"
+WORKBENCH_ENABLED = os.getenv("LLMFLASK_WORKBENCH_ENABLED", "0") == "1"
 SANDBOX_RUNTIME = os.getenv("LLMFLASK_SANDBOX_RUNTIME", "docker")
 SANDBOX_IMAGE = os.getenv("LLMFLASK_SANDBOX_IMAGE", "llmflask-sandbox:1")
 POOL_ROOT = os.getenv("LLMFLASK_POOL_ROOT", str(Path.home() / ".local" / "share" / "llmflask" / "pools"))

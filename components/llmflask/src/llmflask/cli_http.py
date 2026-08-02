@@ -11,8 +11,19 @@ from collections.abc import Iterator
 import httpx
 
 
+REQUEST_HEADERS = {"X-LLMFlask-Request": "1"}
+
+
+def api_request_headers(headers: dict[str, str] | None = None) -> dict[str, str]:
+    merged = dict(headers or {})
+    merged.update(REQUEST_HEADERS)
+    return merged
+
+
 def api_request(base: str, method: str, path: str, **kwargs) -> httpx.Response | None:
     try:
+        if method.upper() in {"POST", "PUT", "PATCH", "DELETE"}:
+            kwargs["headers"] = api_request_headers(kwargs.get("headers"))
         resp = httpx.request(method, f"{base}{path}", timeout=kwargs.pop("timeout", 10), **kwargs)
         resp.raise_for_status()
         return resp

@@ -152,9 +152,10 @@ def test_run_server_batch_command_streams_sse_tokens(monkeypatch):
         def __exit__(self, *args):
             return None
 
-        def stream(self, method, url, json=None):
+        def stream(self, method, url, headers=None, json=None):
             captured["method"] = method
             captured["url"] = url
+            captured["headers"] = headers
             captured["json"] = json
             return MockResponse()
 
@@ -166,6 +167,7 @@ def test_run_server_batch_command_streams_sse_tokens(monkeypatch):
     assert captured == {
         "method": "POST",
         "url": "http://127.0.0.1:60010/api/batch",
+        "headers": {"X-LLMFlask-Request": "1"},
         "json": {"message": "Frage", "model": "qwen3:14b"},
     }
 
@@ -195,7 +197,8 @@ def test_run_server_batch_command_does_not_duplicate_final_newline(monkeypatch):
         def __exit__(self, *args):
             return None
 
-        def stream(self, method, url, json=None):
+        def stream(self, method, url, headers=None, json=None):
+            assert headers == {"X-LLMFlask-Request": "1"}
             return MockResponse()
 
     monkeypatch.setattr("llmflask.batch.httpx.Client", MockClient)
@@ -234,7 +237,8 @@ def test_run_server_batch_command_sends_prompt(monkeypatch, tmp_path):
         def __exit__(self, *args):
             return None
 
-        def stream(self, method, url, json=None):
+        def stream(self, method, url, headers=None, json=None):
+            assert headers == {"X-LLMFlask-Request": "1"}
             captured["json"] = json
             return MockResponse()
 
@@ -269,7 +273,8 @@ def test_run_server_batch_command_raises_sse_error(monkeypatch):
         def __exit__(self, *args):
             return None
 
-        def stream(self, method, url, json=None):
+        def stream(self, method, url, headers=None, json=None):
+            assert headers == {"X-LLMFlask-Request": "1"}
             return MockResponse()
 
     monkeypatch.setattr("llmflask.batch.httpx.Client", MockClient)

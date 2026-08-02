@@ -8,19 +8,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONFIG_FILE="$REPO_ROOT/.github-config"
+PUBLICATION_CHECKER="$SCRIPT_DIR/check-publication.sh"
 PUBLIC_MARKER=".llmflask-public-snapshot"
 TEMPORARY_ROOT=""
-PRIVATE_ONLY_PATHS=(
-    archive/legacy-docs
-    AGENTS.md
-    OPENCODE_INSTALLATION_PLAN.md
-    OPENCODE_REVIEW_PLAN.md
-    PROJECT_TRACE.md
-    PYTHON_GROSSREFAKTOR_REVIEW.md
-    llmflask_local_ai_workbench_pool_phase1_AI_Draft_Unreviewed_2026-07-12.md
-    opencode.json
-    prompts/ollama_prompt_pack_pythonic.tar.gz
-)
 
 show_help() {
     cat <<'EOF'
@@ -70,61 +60,15 @@ check_clean_source() {
 
 prepare_snapshot() {
     local destination="$1"
+    local source_commit="$2"
     mkdir -p "$destination"
-    git -C "$REPO_ROOT" archive HEAD | tar -x -C "$destination"
+    git -C "$REPO_ROOT" archive "$source_commit" | tar -x -C "$destination"
 }
 
-audit_snapshot() {
-    local snapshot="$1"
-    local forbidden_path
-    local forbidden_content
-    local personal_home
-    local personal_home_file
-    local private_only_path
-
-    forbidden_path="$(
-        find "$snapshot" \
-            \( -name api.txt -o -name .env -o -name '*.db' \
-               -o -name '*.sqlite' -o -name '*.sqlite3' -o -name '*.tgz' \
-               -o -name '*.tar.gz' -o -name '*.zip' \
-               -o -name '*.pem' -o -name '*.key' -o -name '*.p12' \
-               -o -name '*.pfx' -o -name 'id_rsa*' -o -name 'id_ed25519*' \
-               -o -name __pycache__ -o -name build -o -name dist \
-               -o -name standalone \) -print -quit
-    )"
-    [[ -z "$forbidden_path" ]] || fail "Forbidden public artifact: ${forbidden_path#"$snapshot"/}"
-
-    for private_only_path in "${PRIVATE_ONLY_PATHS[@]}"; do
-        [[ ! -e "$snapshot/$private_only_path" ]] || \
-            fail "Private-only path is present in the public snapshot: $private_only_path"
-    done
-
-    forbidden_content="$(
-        grep -RIlE \
-            'homelinux\.com|/home/[[:alnum:]_.-]+/Nextcloud|[[:alnum:]_.+-]+@gmail\.com|(^|[^0-9])10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}([^0-9]|$)|(^|[^0-9])192\.168\.[0-9]{1,3}\.[0-9]{1,3}([^0-9]|$)|(^|[^0-9])172\.(1[6-9]|2[0-9]|3[01])\.[0-9]{1,3}\.[0-9]{1,3}([^0-9]|$)' \
-            "$snapshot" 2>/dev/null | head -1 || true
-    )"
-    [[ -z "$forbidden_content" ]] || fail "Private-looking content: ${forbidden_content#"$snapshot"/}"
-
-    personal_home="$(
-        grep -RhoE '/home/[[:alnum:]_.-]+' "$snapshot" 2>/dev/null | \
-            while IFS= read -r home_path; do
-                case "$home_path" in
-                    /home/git)
-                        ;;
-                    *)
-                        printf '%s\n' "$home_path"
-                        break
-                        ;;
-                esac
-            done || true
-    )"
-    if [[ -n "$personal_home" ]]; then
-        personal_home_file="$(
-            grep -RIlF "$personal_home" "$snapshot" 2>/dev/null | head -1 || true
-        )"
-        fail "Personal home path $personal_home: ${personal_home_file#"$snapshot"/}"
-    fi
+run_publication_audit() {
+    [[ -x "$PUBLICATION_CHECKER" ]] || \
+        fail "Publication checker is missing or not executable: $PUBLICATION_CHECKER"
+    "$PUBLICATION_CHECKER"
 }
 
 read_config_value() {
@@ -222,7 +166,7 @@ commit_and_push() {
 
 main() {
     local mode="${1:-publish}"
-    local snapshot public_repo
+    local snapshot public_repo source_commit
 
     case "$mode" in
         --help|-h)
@@ -240,13 +184,16 @@ main() {
     require_command git
     require_command tar
     check_clean_source
+    source_commit="$(git -C "$REPO_ROOT" rev-parse --verify HEAD)"
+    run_publication_audit
+    [[ "$(git -C "$REPO_ROOT" rev-parse --verify HEAD)" == "$source_commit" ]] || \
+        fail "Committed HEAD changed during the publication audit; rerun the command"
 
     TEMPORARY_ROOT="$(mktemp -d)"
     trap cleanup EXIT
     snapshot="$TEMPORARY_ROOT/snapshot"
     public_repo="$TEMPORARY_ROOT/public"
-    prepare_snapshot "$snapshot"
-    audit_snapshot "$snapshot"
+    prepare_snapshot "$snapshot" "$source_commit"
 
     if [[ "$mode" == "--check" ]]; then
         echo "Public snapshot check passed."

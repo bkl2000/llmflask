@@ -7,6 +7,7 @@ from typing import TextIO
 import httpx
 
 from .chat_runtime import build_chat_messages, collect_stream, trailing_newline_delta
+from .cli_http import REQUEST_HEADERS
 from .services.model_providers import chat_stream
 
 
@@ -116,7 +117,9 @@ def run_server_batch_command(
         body["search"] = True
 
     with httpx.Client(timeout=httpx.Timeout(300, connect=10)) as client:
-        with client.stream("POST", f"{base_url}/api/batch", json=body) as resp:
+        with client.stream(
+            "POST", f"{base_url}/api/batch", json=body, headers=REQUEST_HEADERS
+        ) as resp:
             resp.raise_for_status()
             full_response = ""
             for line in resp.iter_lines():

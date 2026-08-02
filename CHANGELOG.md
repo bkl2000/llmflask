@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0 — 2026-08
+
+Local-first security defaults:
+
+- the server now binds to `127.0.0.1` by default;
+- Workbench is disabled unless explicitly enabled;
+- exact trusted Host validation protects local and configured LAN endpoints;
+- state-changing API requests require an intent header and browser Origins
+  must match the request endpoint;
+- bundled Web, CLI, TUI, batch, pool, and remote-test clients send the header;
+- GitHub publication now delegates every path to one authoritative audit.
+
 ## 0.1.0 — 2026-08
 
 Initial public source release.

@@ -4,13 +4,13 @@
 > OpenAI and DeepSeek APIs—from a browser, a terminal UI, or a single command.
 
 > [!WARNING]
-> LLMFlask 0.1.0 is intended for trusted local users and protected networks.
-> It has no authentication, authorization, or tenant isolation, and the
-> packaged server binds to `0.0.0.0`. Do not expose it directly to the internet
-> or to untrusted users. See [Security](SECURITY.md) for the supported trust
-> boundary and known limitations.
+> LLMFlask 0.2.0 is intended for trusted local users and protected networks.
+> It has no authentication, authorization, or tenant isolation. The server
+> listens on loopback by default; keep it local, reach it through an SSH
+> tunnel, or explicitly configure a protected LAN. Do not expose it directly
+> to the internet or to untrusted users. See [Security](SECURITY.md).
 
-Current development version: **0.1.0**. Versions change only for intentional
+Current development version: **0.2.0**. Versions change only for intentional
 releases, not for each pull, commit, or GitHub snapshot.
 
 ## Why LLMFlask?
@@ -86,7 +86,7 @@ OpenAI, or DeepSeek.
 | Interface | Best for | Start it |
 |---|---|---|
 | **Web GUI** | Comfortable chats in a browser | `llmflask --server`, then open `http://localhost:5000` |
-| **TUI** | Interactive chats entirely in a terminal | `llmflask --tui --host SERVER_IP` |
+| **TUI** | Interactive chats entirely in a terminal | `llmflask --tui` |
 | **CMD** | One-off questions, pipes, and shell scripts | Run `llmflask --models`, then pass a listed `MODELREF` to `--model` |
 
 All three interfaces can use the same models. Local models run through Ollama
@@ -235,14 +235,11 @@ No venv activation is needed when using the standalone binary.
 software from Ollama, SearXNG, OpenCode, PyPI, and their image registries. The
 venv it creates remains useful for rebuilding LLMFlask and for development.
 
-On another computer, use the server address instead of `localhost`; see
-[Server deployment](docs/deployment-server.md) for network and
-production-server notes.
-
-The packaged server configuration binds to `0.0.0.0`, while client commands
-default to `127.0.0.1`. A firewall may therefore make the Web GUI reachable on
-the local network. Do not expose LLMFlask directly to the internet without
-authentication, firewall rules, and a deployment review.
+The server listens on `127.0.0.1` by default, matching the local client
+default. This is the safest normal setup: only programs on the same computer
+can connect. For another computer, prefer the SSH-tunnel flow in
+[Remote servers and API keys](#remote-servers-and-api-keys). A protected-LAN
+deployment requires an explicit bind address and trusted Host allowlist.
 
 LLMFlask deliberately has no authentication layer. Names selected with
 `--user` are organizational chat profiles, not security boundaries: anyone
@@ -261,11 +258,10 @@ use:
 ```
 
 Copy a value from the `MODELREF` column exactly as printed and use it for
-`--model`. The default installer normally provides
-`ollama/qwen3:8b` and `ollama/llama3.1:8b`; larger models are selected according
-to available GPU memory. On machines with less than 8 GB VRAM it installs the
-small models `ollama/llama3.2:3b` and `ollama/qwen3:1.7b` instead. The
-`--models` table shows each model's size and the recommended VRAM tier.
+`--model`. The beginner-safe `make all` path installs
+`ollama/llama3.2:3b`. The optional full-stack installer may add other models
+according to available GPU memory. The `--models` table is authoritative and
+shows each installed model's size and recommended VRAM tier.
 
 Model discovery depends on where the models and API keys live:
 
@@ -273,8 +269,8 @@ Model discovery depends on where the models and API keys live:
 # Directly query local Ollama plus remote providers configured on this client
 llmflask --models
 
-# Query a running LLMFlask server
-llmflask --models --host SERVER_IP --port 5000
+# Query a running LLMFlask server through an SSH tunnel on local port 60010
+llmflask --models --host 127.0.0.1 --port 60010
 
 # Query one remote provider directly; its API key must be configured locally
 llmflask --models --provider deepseek
@@ -320,7 +316,7 @@ Ask one question and stream the answer to the terminal:
 
 ```bash
 llmflask --cmd --text "Explain why local LLMs are useful" \
-  --model ollama/qwen3:8b
+  --model ollama/llama3.2:3b
 ```
 
 Without `--host` or `--port`, CMD talks directly to Ollama or the selected
@@ -329,10 +325,10 @@ the request through LLMFlask instead:
 
 ```bash
 llmflask --cmd --text "Summarize this in three points" \
-  --model ollama/qwen3:8b --host 192.0.2.20
+  --model ollama/llama3.2:3b --host 127.0.0.1 --port 60010
 
 echo "Explain shell pipelines" | \
-  llmflask --cmd --model ollama/qwen3:8b --output answer.md
+  llmflask --cmd --model ollama/llama3.2:3b --output answer.md
 ```
 
 Use `--session ID --user NAME` if a CMD answer should be stored in a chat that
@@ -347,8 +343,8 @@ defaults where applicable:
 ```bash
 llm-chat --user alice
 llm-models
-llm-ask --model ollama/qwen3:8b "Summarize this directory layout"
-llm-pool --model ollama/qwen3:8b --file data.csv --text "Analyze the data"
+llm-ask --model ollama/llama3.2:3b "Summarize this directory layout"
+llm-pool --model ollama/llama3.2:3b --file data.csv --text "Analyze the data"
 llm-pools list
 llm-results list
 llm-sessions --user alice list
@@ -396,22 +392,22 @@ docker info
 make install-sandbox
 docker image inspect llmflask-sandbox:1 >/dev/null
 
-# The Workbench API is enabled by default when the server starts.
-~/bin/llmflask --server production
+# Workbench is opt-in. Enable it only for this server process.
+LLMFLASK_WORKBENCH_ENABLED=1 ~/bin/llmflask --server production
 ```
 
 There is no persistent pool container to start. Each pool execution creates a
-hardened temporary container and removes it afterward. Set
-`LLMFLASK_WORKBENCH_ENABLED=0` before starting the server only when the
-Workbench API should be disabled; unset it or set it to `1` and restart the
-server to enable the API again.
+hardened temporary container and removes it afterward. The Workbench API is
+disabled unless `LLMFLASK_WORKBENCH_ENABLED=1` is present when the server
+starts. Remove the setting and restart the server to disable it again.
 
 On a remote installation, build the sandbox image and start LLMFlask on the
-server. The client needs only LLMFlask and selects that server explicitly:
+server. The client needs only LLMFlask. After opening the recommended SSH
+tunnel on local port 60010, select that forwarded endpoint explicitly:
 
 ```bash
-llmflask --models --host SERVER_IP --port 5000
-llmflask --usepool --host SERVER_IP --port 5000 \
+llmflask --models --host 127.0.0.1 --port 60010
+llmflask --usepool --host 127.0.0.1 --port 60010 \
   --model MODELREF --file data.csv --text "Calculate useful statistics"
 ```
 
@@ -472,7 +468,7 @@ key must be configured:
 |---|---|---|---|
 | Direct local Ollama | Omit `--host`, `--port`, and `--provider` | Ollama on the current computer | No key |
 | Direct remote Ollama | Set `OLLAMA_URL=http://OLLAMA_SERVER:11434` | Ollama on the named computer | No key |
-| LLMFlask server | Add `--host SERVER_IP` | The server selects Ollama or a remote provider | On the server account, only for OpenAI/DeepSeek |
+| LLMFlask server | After an SSH tunnel, add `--host 127.0.0.1 --port 60010` | The server selects Ollama or a remote provider | On the server account, only for OpenAI/DeepSeek |
 | Web GUI | Start `llmflask --server` | The server selects Ollama or a remote provider | On the server account, only for OpenAI/DeepSeek |
 | Direct OpenAI/DeepSeek | Add `--provider openai` or `--provider deepseek` | The selected provider | On the client account |
 
@@ -500,24 +496,52 @@ The destination does not need Python, a venv, or the repository, but it does
 need network access to Ollama, a LLMFlask server, or a selected external
 provider.
 
-For example, run the copied executable as a server in front of Ollama on a
-separate GPU computer, then query that LLMFlask server from a client:
+For example, run the copied executable as a loopback-only server in front of
+Ollama on a separate GPU computer:
 
 ```bash
 # On the LLMFlask server
 OLLAMA_URL=http://OLLAMA_SERVER:11434 ~/bin/llmflask --server production
-
-# On a trusted client
-~/bin/llmflask --models --host LLMFLASK_SERVER
-~/bin/llmflask --tui --host LLMFLASK_SERVER --user alice
 ```
 
+The recommended remote path is an SSH tunnel. Keep the server on its default
+loopback address, start this command on the trusted client, and leave it
+running:
+
+```bash
+ssh -N -L 60010:127.0.0.1:5000 user@LLMFLASK_SERVER
+
+# In another client terminal
+~/bin/llmflask --models --host 127.0.0.1 --port 60010
+~/bin/llmflask --tui --host 127.0.0.1 --port 60010 --user alice
+```
+
+The Web GUI is then available at <http://127.0.0.1:60010>. SSH supplies the
+encrypted and authenticated transport that LLMFlask itself does not provide.
+
+For a protected LAN whose clients are all trusted, bind only to the server's
+LAN address and list every hostname or IP address clients will use. Values in
+`LLMFLASK_TRUSTED_HOSTS` are comma-separated:
+
+```bash
+LLMFLASK_HOST=192.0.2.20 \
+LLMFLASK_TRUSTED_HOSTS=192.0.2.20,llmflask.internal \
+  ~/bin/llmflask --server production --port 5000
+
+# Equivalent command-line bind override:
+LLMFLASK_TRUSTED_HOSTS=192.0.2.20,llmflask.internal \
+  ~/bin/llmflask --server production --host 192.0.2.20 --port 5000
+```
+
+The trusted-Host check rejects unexpected HTTP `Host` headers; it does not
+authenticate users. Entries are exact hostnames or IP addresses without a URL
+scheme, path, port, or wildcard. Keep firewall access limited to the trusted
+LAN.
+
 The copied server needs Docker only if it should run the Workbench sandbox. If
-SearXNG also runs elsewhere, set `SEARXNG_URL` on the server. The packaged
-server binds to `0.0.0.0`; use it only for trusted clients on a protected
-network or through an SSH tunnel. LLMFlask has no authentication or tenant
-isolation, so do not expose either LLMFlask or Ollama directly to an untrusted
-network.
+SearXNG also runs elsewhere, set `SEARXNG_URL` on the server. LLMFlask has no
+authentication or tenant isolation, so do not expose either LLMFlask or Ollama
+directly to an untrusted network.
 
 As an alternative, `make client-tgz` creates an offline Python client archive.
 That archive includes its wheelhouse and installs without internet access, but
@@ -594,12 +618,26 @@ and port forwarding.
 ## Common startup problems
 
 - **`No models found`:** confirm `ollama list` and the Ollama system service
-  locally, or add `--host SERVER_IP` to query the server. For a remote provider,
-  confirm its API key and network access.
+  locally, or open the documented SSH tunnel and query it with
+  `--host 127.0.0.1 --port 60010`. For a remote provider, confirm its API key
+  and network access.
 - **`No server at ...`:** start `llmflask --server` on the target machine and
   check the host, port, firewall, or SSH tunnel.
 - **Docker permission or daemon errors:** make `docker info` work as the normal
   user before running the installer or Workbench.
+- **`Workbench is disabled`:** run `docker info`, build the sandbox with
+  `make install-sandbox`, then restart the server with
+  `LLMFLASK_WORKBENCH_ENABLED=1`.
+- **`Host` rejected with HTTP 400:** connect through the default loopback/SSH
+  tunnel flow, or add the exact client-facing hostname or IP address to the
+  server's comma-separated `LLMFLASK_TRUSTED_HOSTS` value and restart it.
+- **`X-LLMFlask-Request` rejected with HTTP 403:** the same-origin Web UI and
+  bundled CLI add `X-LLMFlask-Request: 1` automatically. A custom HTTP client
+  must send that header on every `POST`, `PUT`, `PATCH`, and `DELETE` request.
+  The header is a request-intent check, not authentication.
+- **`Origin` rejected with HTTP 403:** use the bundled UI from the same scheme,
+  hostname, and port as the request. A reverse proxy must preserve a matching
+  external Host and Origin and requires a separate security review.
 - **`OPENAI_API_KEY` or `DEEPSEEK_API_KEY` missing:** configure the key on the
   machine that performs the direct request with
   `~/bin/llmflask --configure-api-keys`, or run the helper as the server account

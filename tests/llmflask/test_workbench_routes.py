@@ -10,6 +10,8 @@ from pathlib import Path
 def client(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test.db")
     monkeypatch.setattr("llmflask.config.DATABASE", db_path)
+    monkeypatch.setattr("llmflask.config.WORKBENCH_ENABLED", True)
+    monkeypatch.setattr("llmflask.routes.workbench.WORKBENCH_ENABLED", True)
     monkeypatch.setattr("llmflask.routes.workbench.POOL_ROOT", str(tmp_path / "pools"))
     monkeypatch.setattr(
         "llmflask.routes.workbench.POOL_ARCHIVE_ROOT", str(tmp_path / "archives")
@@ -20,6 +22,7 @@ def client(tmp_path, monkeypatch):
         from llmflask.database import init_db
         init_db(db_path)
     with app.test_client() as c:
+        c.environ_base["HTTP_X_LLMFLASK_REQUEST"] = "1"
         yield c
 
 

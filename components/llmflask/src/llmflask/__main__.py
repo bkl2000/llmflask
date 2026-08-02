@@ -348,7 +348,7 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--version", action="version", version="llmflask 0.1.0",
+        "--version", action="version", version="llmflask 0.2.0",
     )
     parser.add_argument(
         "--tui", action="store_true",
@@ -407,7 +407,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--host", type=str, default=None,
-        help="Client target (default: 127.0.0.1); server bind uses LLMFLASK_HOST (default: 0.0.0.0)",
+        help="Client target or server bind address (default: 127.0.0.1)",
     )
     parser.add_argument(
         "--port", type=_port_number, default=None,

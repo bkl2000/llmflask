@@ -26,6 +26,9 @@ except ImportError:
     sys.exit(1)
 
 
+REQUEST_HEADERS = {"X-LLMFlask-Request": "1"}
+
+
 @dataclass
 class Result:
     passed: list[str] = field(default_factory=list)
@@ -53,7 +56,7 @@ def api_get(base, path, timeout=10):
 
 
 def api_delete(base, path, timeout=10):
-    resp = httpx.delete(f"{base}{path}", timeout=timeout)
+    resp = httpx.delete(f"{base}{path}", headers=REQUEST_HEADERS, timeout=timeout)
     resp.raise_for_status()
     return resp.json()
 
@@ -61,11 +64,19 @@ def api_delete(base, path, timeout=10):
 def api_sse(base, path, method="POST", data=None, files=None, timeout=300):
     client = httpx.Client(timeout=httpx.Timeout(timeout, connect=10))
     if files:
-        with client.stream(method, f"{base}{path}", data=data or {}, files=files) as resp:
+        with client.stream(
+            method,
+            f"{base}{path}",
+            headers=REQUEST_HEADERS,
+            data=data or {},
+            files=files,
+        ) as resp:
             resp.raise_for_status()
             return _parse_sse(resp)
     else:
-        with client.stream(method, f"{base}{path}", json=data or {}) as resp:
+        with client.stream(
+            method, f"{base}{path}", headers=REQUEST_HEADERS, json=data or {}
+        ) as resp:
             resp.raise_for_status()
             return _parse_sse(resp)
 
@@ -105,7 +116,9 @@ def test_pool_list_empty(base, result):
 def test_pool_invalid_request(base, result):
     try:
         client = httpx.Client(timeout=10)
-        resp = client.post(f"{base}/api/pool", data={})  # no request field, no file
+        resp = client.post(
+            f"{base}/api/pool", headers=REQUEST_HEADERS, data={}
+        )  # no request field, no file
         assert resp.status_code == 400
         result.passed.append("test_pool_invalid_request")
     except Exception as e:

@@ -181,7 +181,7 @@ def test_public_version_is_consistent_and_manually_released(project_root):
     assert f"LLMFlask {version}" in readme
     assert f"llmflask {version}" in main_cli
     assert f"llmflask {version}" in compatibility_cli
-    assert "does not automatically change the version" in workflow
+    assert "does not automatically change the version" in workflow_words
     assert "Never tag or publish a private-history commit" in workflow_words
 
 
@@ -217,7 +217,7 @@ def test_readme_introduces_all_llmflask_interfaces(project_root):
     assert "llmflask --cmd" in readme
     assert "make install-ai" in readme
     assert "MODELREF" in readme
-    assert "llmflask --models --host SERVER_IP" in readme
+    assert "llmflask --models --host 127.0.0.1 --port 60010" in readme
     assert "Remote servers and API keys" in readme
 
 
@@ -312,8 +312,8 @@ def test_readme_documents_explicit_pool_model_and_common_failures(project_root):
     assert "make install-sandbox" in readme
     assert "docker image inspect llmflask-sandbox:1" in readme
     assert "There is no persistent pool container to start" in readme
-    assert "LLMFLASK_WORKBENCH_ENABLED=0" in readme
-    assert "--usepool --host SERVER_IP --port 5000" in readme
+    assert "LLMFLASK_WORKBENCH_ENABLED=1" in readme
+    assert "--usepool --host 127.0.0.1 --port 60010" in readme
     assert "Broader toolchains" in readme
     assert "No models found" in readme
     assert "No server at" in readme
@@ -326,7 +326,7 @@ def test_architecture_distinguishes_pool_and_install_test_containers(project_roo
     assert "experimental Phase 1" in architecture
     assert "not the planned fresh-install test container" in architecture
     assert "make install-sandbox" in architecture
-    assert "persistent pool container to start" in architecture
+    assert "persistent pool container to start" in " ".join(architecture.split())
 
 
 def test_readme_documents_api_key_file_safely(project_root):
@@ -339,6 +339,23 @@ def test_readme_documents_api_key_file_safely(project_root):
     assert "permissions `700`" in readme
     assert "file with `600`" in readme
     assert "Never commit API keys" in readme
+
+
+def test_web_client_marks_state_changing_api_requests(project_root):
+    chat_js = (
+        project_root
+        / "components"
+        / "llmflask"
+        / "src"
+        / "llmflask"
+        / "static"
+        / "chat.js"
+    ).read_text()
+
+    assert "'X-LLMFlask-Request': '1'" in chat_js.split(
+        "fetch('/api/chat'", 1
+    )[1][:500]
+    assert "['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)" in chat_js
 
 
 def test_docs_capture_trace_and_project_history_policy(project_root):

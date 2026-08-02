@@ -1,6 +1,6 @@
 [project]
 name = "llmflask-setup"
-version = "0.1.0"
+version = "0.2.0"
 description = "LLMFlask mit idempotenten Setup-Skripten fuer einen lokalen AI-Stack"
 requires-python = ">=3.12"
 dependencies = []

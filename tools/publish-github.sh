@@ -169,7 +169,6 @@ verify_github_ssh() {
 
 run_local_preflight() {
     make -C "$REPO_ROOT" test
-    "$SCRIPT_DIR/check-publication.sh"
     "$SCRIPT_DIR/github-push.sh" --check
 }
 

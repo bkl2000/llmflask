@@ -186,7 +186,9 @@ def _publisher_fixture(tmp_path: Path, project_root: Path) -> tuple[Path, dict[s
     )
     _write_executable(
         tools_dir / "github-push.sh",
-        "#!/bin/sh\necho github-push-called \"${1:-publish}\"\n",
+        "#!/bin/sh\n"
+        '"$(dirname "$0")/check-publication.sh"\n'
+        "echo github-push-called \"${1:-publish}\"\n",
     )
     _write_executable(fake_bin / "make", "#!/bin/sh\necho make-called \"$@\"\n")
     _write_executable(
@@ -214,6 +216,7 @@ def test_publisher_dry_run_has_no_ssh_or_push(tmp_path, project_root):
     )
 
     assert "make-called" in result.stdout
+    assert "checker-called" in result.stdout
     assert "github-push-called --check" in result.stdout
     assert "no network changes were made" in result.stdout
     assert "successfully authenticated" not in result.stdout
@@ -243,6 +246,7 @@ def test_publisher_accepts_github_ssh_status_one(tmp_path, project_root):
 
     assert "successfully authenticated" in result.stdout
     assert "GitHub status 1 is expected" in result.stdout
+    assert result.stdout.count("checker-called") == 2
     assert "github-push-called --check" in result.stdout
     assert "github-push-called publish" in result.stdout
 

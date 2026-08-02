@@ -132,16 +132,17 @@ manual approval step and is never changed by project scripts.
 
 ## Versioning and releases
 
-LLMFlask uses semantic version numbers. `0.1.0` is the initial development
-version: the leading zero communicates that interfaces and behavior may still
-change. Pulling changes, committing work, or publishing another GitHub
-snapshot does not automatically change the version.
+LLMFlask uses semantic version numbers. `0.1.0` was the initial development
+source release; `0.2.0` introduces the local-first server security defaults.
+The leading zero communicates that interfaces and behavior may still change.
+Pulling changes, committing work, or publishing another GitHub snapshot does
+not automatically change the version.
 
 Use the following convention while the project is below `1.0.0`:
 
-- increment the patch number, for example `0.1.0` to `0.1.1`, for a compatible
+- increment the patch number, for example `0.2.0` to `0.2.1`, for a compatible
   bug-fix release;
-- increment the minor number, for example `0.1.1` to `0.2.0`, for a substantial
+- increment the minor number, for example `0.2.1` to `0.3.0`, for a substantial
   feature or an intentionally incompatible development change;
 - use `1.0.0` only after the supported interfaces, installation workflow, and
   security model are considered stable.

@@ -3,11 +3,46 @@
 import importlib
 from pathlib import Path
 
+import pytest
+
 
 def _reload_config(monkeypatch):
     import llmflask.config as config
 
     return importlib.reload(config)
+
+
+def test_server_host_defaults_to_loopback(monkeypatch):
+    monkeypatch.delenv("LLMFLASK_HOST", raising=False)
+
+    config = _reload_config(monkeypatch)
+
+    assert config.HOST == "127.0.0.1"
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        (None, False),
+        ("", False),
+        ("0", False),
+        ("true", False),
+        ("yes", False),
+        ("2", False),
+        (" 1", False),
+        ("1 ", False),
+        ("1", True),
+    ],
+)
+def test_workbench_requires_exact_opt_in(monkeypatch, configured, expected):
+    if configured is None:
+        monkeypatch.delenv("LLMFLASK_WORKBENCH_ENABLED", raising=False)
+    else:
+        monkeypatch.setenv("LLMFLASK_WORKBENCH_ENABLED", configured)
+
+    config = _reload_config(monkeypatch)
+
+    assert config.WORKBENCH_ENABLED is expected
 
 
 def test_default_database_path_uses_home(monkeypatch, tmp_path):

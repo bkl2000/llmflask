@@ -2382,9 +2382,10 @@ def test_server_send_message_sends_system_prompt(monkeypatch):
         def __exit__(self, *args):
             return None
 
-        def stream(self, method, url, json=None):
+        def stream(self, method, url, headers=None, json=None):
             seen["method"] = method
             seen["url"] = url
+            seen["headers"] = headers
             seen["json"] = json
             return MockResponse()
 
@@ -2400,6 +2401,7 @@ def test_server_send_message_sends_system_prompt(monkeypatch):
     _send_message(state)
 
     assert seen["url"] == "http://127.0.0.1:5000/api/chat?user=alice"
+    assert seen["headers"] == {"X-LLMFlask-Request": "1"}
     assert seen["json"] == {
         "session_id": 7,
         "message": "hi",

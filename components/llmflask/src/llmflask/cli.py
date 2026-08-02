@@ -13,6 +13,8 @@ from pathlib import Path
 from urllib.parse import urlencode
 import httpx
 
+from .cli_http import REQUEST_HEADERS
+
 from .config import DATABASE, MAX_CONTEXT_MESSAGES, PORT, prepare_database_path
 from .database import (
     add_message,
@@ -123,7 +125,7 @@ def _api_get(url: str, state: "TuiState | None" = None, action: str = "GET") -> 
 
 def _api_post(url: str, data: dict, state: "TuiState | None" = None, action: str = "POST") -> dict:
     try:
-        resp = httpx.post(url, json=data, timeout=10)
+        resp = httpx.post(url, json=data, headers=REQUEST_HEADERS, timeout=10)
         resp.raise_for_status()
         return resp.json()
     except Exception as e:
@@ -133,7 +135,7 @@ def _api_post(url: str, data: dict, state: "TuiState | None" = None, action: str
 
 def _api_delete(url: str, state: "TuiState | None" = None, action: str = "DELETE") -> bool:
     try:
-        resp = httpx.delete(url, timeout=10)
+        resp = httpx.delete(url, headers=REQUEST_HEADERS, timeout=10)
         resp.raise_for_status()
         return True
     except Exception as e:
@@ -402,6 +404,7 @@ def _send_message(state: TuiState):
                     with client.stream(
                         "POST",
                         f"{state.base}/api/chat?{_user_query(state)}",
+                        headers=REQUEST_HEADERS,
                         json={
                             "session_id": session_id,
                             "message": msg,

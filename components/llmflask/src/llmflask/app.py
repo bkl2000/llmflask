@@ -11,6 +11,7 @@ from .routes.sessions import sessions_bp
 from .routes.search import search_bp
 from .routes.export import export_bp
 from .routes.workbench import workbench_bp
+from .request_security import install_request_security
 
 
 def create_app():
@@ -21,6 +22,7 @@ def create_app():
     )
     app.config["DB_PATH"] = config.prepare_database_path(config.DATABASE)
     app.config["MAX_CONTENT_LENGTH"] = config.MAX_UPLOAD_BYTES
+    install_request_security(app, config.TRUSTED_HOSTS)
 
     app.register_blueprint(chat_bp, url_prefix="/api")
     app.register_blueprint(models_bp, url_prefix="/api")

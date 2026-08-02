@@ -32,6 +32,9 @@ from ..workbench.pool_manager import PoolManager, UnsafePoolError
 
 workbench_bp = Blueprint("workbench_routes", __name__)
 _MAX_DEBUG_FILE_BYTES = 100_000
+_WORKBENCH_DISABLED_ERROR = (
+    "Workbench is disabled. Set LLMFLASK_WORKBENCH_ENABLED=1 before starting the server."
+)
 
 
 def _save_stream_limited(file_storage, destination: Path) -> None:
@@ -149,7 +152,7 @@ def _save_uploaded_directory() -> tuple[str, str]:
 @workbench_bp.route("/pool", methods=["POST"])
 def create_pool():
     if not WORKBENCH_ENABLED:
-        return jsonify({"error": "Workbench is disabled"}), 403
+        return jsonify({"error": _WORKBENCH_DISABLED_ERROR}), 403
 
     model_ref = request.form.get("model", "")
     user_request = request.form.get("request", "")
@@ -213,7 +216,7 @@ def create_pool():
 @workbench_bp.route("/pools", methods=["GET", "DELETE"])
 def list_pools():
     if not WORKBENCH_ENABLED:
-        return jsonify({"error": "Workbench is disabled"}), 403
+        return jsonify({"error": _WORKBENCH_DISABLED_ERROR}), 403
 
     if request.method == "DELETE":
         mgr = PoolManager(POOL_ROOT)
@@ -236,7 +239,7 @@ def list_pools():
 @workbench_bp.route("/pools/<name>", methods=["GET"])
 def pool_info(name):
     if not WORKBENCH_ENABLED:
-        return jsonify({"error": "Workbench is disabled"}), 403
+        return jsonify({"error": _WORKBENCH_DISABLED_ERROR}), 403
 
     wb = _get_workbench()
     try:
@@ -250,7 +253,7 @@ def pool_info(name):
 @workbench_bp.route("/pools/<name>/run", methods=["POST"])
 def rerun_pool(name):
     if not WORKBENCH_ENABLED:
-        return jsonify({"error": "Workbench is disabled"}), 403
+        return jsonify({"error": _WORKBENCH_DISABLED_ERROR}), 403
 
     data = request.get_json(silent=True) or {}
     model_ref = data.get("model", "")
@@ -285,7 +288,7 @@ def rerun_pool(name):
 @workbench_bp.route("/pools/<name>/pack", methods=["GET"])
 def pack_pool(name):
     if not WORKBENCH_ENABLED:
-        return jsonify({"error": "Workbench is disabled"}), 403
+        return jsonify({"error": _WORKBENCH_DISABLED_ERROR}), 403
 
     without_input = request.args.get("without_input", "").lower() in ("1", "true", "yes")
     as_download = request.args.get("download", "").lower() in ("1", "true", "yes")
@@ -332,7 +335,7 @@ def pack_pool(name):
 @workbench_bp.route("/pools/<name>/debug", methods=["GET"])
 def debug_pool(name):
     if not WORKBENCH_ENABLED:
-        return jsonify({"error": "Workbench is disabled"}), 403
+        return jsonify({"error": _WORKBENCH_DISABLED_ERROR}), 403
 
     wb = _get_workbench()
     try:
@@ -358,7 +361,7 @@ def debug_pool(name):
 @workbench_bp.route("/pools/<name>", methods=["DELETE"])
 def delete_pool(name):
     if not WORKBENCH_ENABLED:
-        return jsonify({"error": "Workbench is disabled"}), 403
+        return jsonify({"error": _WORKBENCH_DISABLED_ERROR}), 403
 
     wb = _get_workbench()
     try:

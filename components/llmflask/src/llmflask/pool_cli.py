@@ -14,7 +14,7 @@ from urllib.parse import quote
 
 import httpx
 
-from .cli_http import api_request, iter_pool_events
+from .cli_http import REQUEST_HEADERS, api_request, iter_pool_events
 from .config import MAX_UPLOAD_BYTES, MAX_UPLOAD_FILE_BYTES, MAX_UPLOAD_FILES, RESULT_DIR as DEFAULT_RESULT_DIR, is_safe_name
 from .model_discovery import _validate_model_ref, _show_available_models
 
@@ -207,6 +207,7 @@ def _run_pool_cli(
             with client.stream(
                 "POST",
                 f"{base}/api/pool",
+                headers=REQUEST_HEADERS,
                 data=data,
                 files=files,
             ) as resp:
@@ -330,6 +331,7 @@ def _pool_run(base: str, name: str, model_ref: str, result_dir: str | None = Non
             with client.stream(
                 "POST",
                 f"{base}/api/pools/{name}/run",
+                headers=REQUEST_HEADERS,
                 json={"model": model_ref},
             ) as resp:
                 resp.raise_for_status()

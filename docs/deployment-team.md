@@ -15,10 +15,13 @@ Replace `team01` with `team02` through `team10`.
 ## SSH Tunnel
 
 ```bash
-ssh -p PORT -L 60010:SERVER_IP:5000 team01@SERVER_HOST
+ssh -p PORT -N -L 60010:127.0.0.1:5000 team01@SERVER_HOST
 ```
 
-This forwards the server's LLMFlask port (5000) to local port 60010.
+This forwards the server's loopback-only LLMFlask port (5000) to local port
+60010. Keep the SSH command running while using LLMFlask. This is the
+recommended remote flow because SSH supplies encryption and authentication;
+LLMFlask itself does not.
 
 ## Client Usage
 

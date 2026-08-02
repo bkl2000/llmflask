@@ -49,6 +49,10 @@ function toggleSidebar() {
 }
 
 async function apiJson(url, options = {}, fallback = 'Anfrage fehlgeschlagen.') {
+    const method = (options.method || 'GET').toUpperCase();
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+        options.headers = {...(options.headers || {}), 'X-LLMFlask-Request': '1'};
+    }
     const resp = await fetch(url, options);
     let data = null;
     try {
@@ -563,7 +567,10 @@ async function sendMessage() {
         const resp = await fetch('/api/chat' + getUserParam(), {
             method: 'POST',
             signal: state.abortController.signal,
-            headers: {'Content-Type': 'application/json'},
+            headers: {
+                'Content-Type': 'application/json',
+                'X-LLMFlask-Request': '1',
+            },
             body: JSON.stringify({
                 session_id: sessionId,
                 message: text,

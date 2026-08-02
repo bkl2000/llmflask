@@ -253,7 +253,7 @@ def parse(argv: list[str]) -> ParsedArgs:
         sys.exit(0)
 
     if "--version" in tokens:
-        print("llmflask 0.1.0")
+        print("llmflask 0.2.0")
         sys.exit(0)
 
     i = 0

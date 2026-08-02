@@ -14,6 +14,7 @@ def client(tmp_path, monkeypatch):
         from llmflask.database import init_db
         init_db(db_path)
     with app.test_client() as c:
+        c.environ_base["HTTP_X_LLMFLASK_REQUEST"] = "1"
         yield c
 
 

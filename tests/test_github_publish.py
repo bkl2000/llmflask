@@ -25,8 +25,15 @@ def _make_source(tmp_path: Path, project_root: Path) -> Path:
     (source / "tools").mkdir(parents=True)
     (source / "archive" / "legacy-docs").mkdir(parents=True)
     shutil.copy2(project_root / "tools" / "github-push.sh", source / "tools")
+    shutil.copy2(
+        project_root / "tools" / "check-publication.sh", source / "tools"
+    )
+    shutil.copy2(project_root / "LICENSE", source)
     shutil.copy2(project_root / ".gitattributes", source)
-    (source / ".gitignore").write_text(".github-config\n", encoding="utf-8")
+    (source / ".gitignore").write_text(
+        "api.txt\n.github-config\n*.db\ncomponents/llmflask/build/\n",
+        encoding="utf-8",
+    )
     (source / "README.md").write_text("# Public project\n", encoding="utf-8")
     (source / "archive" / "legacy-docs" / "private.md").write_text(
         "Private Author <private.person@example.com>\n", encoding="utf-8"
@@ -126,6 +133,35 @@ def test_public_snapshot_check_rejects_private_network_address(tmp_path, project
 
     assert result.returncode != 0
     assert "Private-looking content: NOTES.md" in result.stderr
+
+
+def test_public_snapshot_check_rejects_credential_pattern(tmp_path, project_root):
+    source = _make_source(tmp_path, project_root)
+    remote = tmp_path / "unused.git"
+    fake_token = "github" + "_pat_" + "A" * 24
+    (source / "NOTES.txt").write_text(fake_token, encoding="utf-8")
+    _commit(source, "add credential fixture")
+
+    result = _run_publisher(source, remote, "--check", check=False)
+
+    assert result.returncode != 0
+    assert "Credential-looking content: NOTES.txt" in result.stderr
+
+
+def test_public_snapshot_check_rejects_private_key_material(tmp_path, project_root):
+    source = _make_source(tmp_path, project_root)
+    remote = tmp_path / "unused.git"
+    private_key_marker = "-----BEGIN OPENSSH " + "PRIVATE KEY-----\n"
+    (source / "NOTES.txt").write_text(
+        private_key_marker + "fake fixture only\n",
+        encoding="utf-8",
+    )
+    _commit(source, "add private key fixture")
+
+    result = _run_publisher(source, remote, "--check", check=False)
+
+    assert result.returncode != 0
+    assert "Private-looking content: NOTES.txt" in result.stderr
 
 
 def test_public_snapshot_check_rejects_generated_archive(tmp_path, project_root):
