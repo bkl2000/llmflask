@@ -1,0 +1,15 @@
+[project]
+name = "llmflask-setup"
+version = "0.1.0"
+description = "LLMFlask mit idempotenten Setup-Skripten fuer einen lokalen AI-Stack"
+requires-python = ">=3.12"
+dependencies = []
+optional-dependencies.dev = [
+    "pytest>=8",
+    "flask>=3",
+    "httpx>=0.28",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

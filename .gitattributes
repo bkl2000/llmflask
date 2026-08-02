@@ -1,0 +1,9 @@
+archive/legacy-docs export-ignore
+AGENTS.md export-ignore
+OPENCODE_INSTALLATION_PLAN.md export-ignore
+OPENCODE_REVIEW_PLAN.md export-ignore
+PROJECT_TRACE.md export-ignore
+PYTHON_GROSSREFAKTOR_REVIEW.md export-ignore
+llmflask_local_ai_workbench_pool_phase1_AI_Draft_Unreviewed_2026-07-12.md export-ignore
+opencode.json export-ignore
+prompts/ollama_prompt_pack_pythonic.tar.gz export-ignore

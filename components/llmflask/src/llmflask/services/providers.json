@@ -1,0 +1,28 @@
+{
+  "providers": [
+    {
+      "name": "openai",
+      "label": "OpenAI",
+      "base_url": "https://api.openai.com/v1",
+      "api_key_name": "OPENAI_API_KEY",
+      "requires_auth": true,
+      "api_style": "openai"
+    },
+    {
+      "name": "deepseek",
+      "label": "DeepSeek",
+      "base_url": "https://api.deepseek.com",
+      "api_key_name": "DEEPSEEK_API_KEY",
+      "requires_auth": true,
+      "api_style": "openai"
+    },
+    {
+      "name": "zen",
+      "label": "OpenCode Zen",
+      "base_url": "https://opencode.ai/zen/v1",
+      "api_key_name": "ZEN_API_KEY",
+      "requires_auth": false,
+      "api_style": "openai"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project]
+name = "llmflask"
+version = "0.1.0"
+description = "ChatGPT-ähnliche Oberfläche für lokale LLMs via Ollama + SearXNG"
+requires-python = ">=3.12"
+dependencies = [
+    "flask>=3",
+    "gunicorn>=22",
+    "httpx>=0.28",
+    "weasyprint>=61",
+]
+optional-dependencies.dev = [
+    "pytest>=8",
+    "pytest-cov",
+    "pyinstaller>=6",
+]
+
+[project.scripts]
+llmflask = "llmflask.__main__:main"
+
+[tool.pytest.ini_options]
+testpaths = ["../../tests/llmflask"]
+python_files = ["test_*.py"]

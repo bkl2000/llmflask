@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Manage server-side Workbench pools.
+# Env: LLMFLASK_HOST, LLMFLASK_PORT, LLMFLASK_MODEL
+
+show_help() {
+  echo "Usage: llm-pools [--host HOST] [--port PORT] ACTION [ARGS...]"
+  echo "Actions: list, show, run, path, pack, debug, remove"
+  echo "Run uses --model MODELREF or LLMFLASK_MODEL."
+}
+
+HOST="${LLMFLASK_HOST:-127.0.0.1}"
+PORT="${LLMFLASK_PORT:-5000}"
+MODEL="${LLMFLASK_MODEL:-}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --help|-h) show_help; exit 0 ;;
+    --host|--port)
+      [[ $# -ge 2 ]] || { echo "llm-pools: $1 requires a value" >&2; exit 2; }
+      if [[ "$1" == "--host" ]]; then HOST="$2"; else PORT="$2"; fi
+      shift 2 ;;
+    --*) echo "llm-pools: unknown option '$1' before action" >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
+
+[[ $# -gt 0 ]] || { show_help >&2; exit 2; }
+ACTION="$1"
+shift
+case "$ACTION" in
+  list|show|run|path|pack|debug|remove) ;;
+  *) echo "llm-pools: unknown action '$ACTION'" >&2; show_help >&2; exit 2 ;;
+esac
+
+action_args=("$@")
+if [[ "$ACTION" == "run" ]]; then
+  has_model=0
+  wants_help=0
+  for arg in "${action_args[@]}"; do
+    [[ "$arg" != "--model" ]] || has_model=1
+    [[ "$arg" != "--help" && "$arg" != "-h" ]] || wants_help=1
+  done
+  if [[ "$has_model" -eq 0 && "$wants_help" -eq 0 ]]; then
+    [[ -n "$MODEL" ]] || {
+      echo "llm-pools: run requires --model MODELREF or LLMFLASK_MODEL" >&2
+      echo "List server models with: llm-models" >&2
+      exit 2
+    }
+    action_args+=(--model "$MODEL")
+  fi
+fi
+
+exec llmflask --host "$HOST" --port "$PORT" pool "$ACTION" "${action_args[@]}"

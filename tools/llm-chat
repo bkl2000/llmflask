@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Start the LLMFlask terminal UI with convenient client defaults.
+# Env: LLMFLASK_HOST, LLMFLASK_PORT, LLMFLASK_USER, LLMFLASK_PROVIDER
+
+show_help() {
+  echo "Usage: llm-chat [--host HOST] [--port PORT] [--user USER]"
+  echo "                [--provider server|openai|deepseek] [--prompt FILE] [--tui-trace]"
+}
+
+HOST="${LLMFLASK_HOST:-127.0.0.1}"
+PORT="${LLMFLASK_PORT:-5000}"
+USER_NAME="${LLMFLASK_USER:-default}"
+PROVIDER="${LLMFLASK_PROVIDER:-server}"
+PROMPT=""
+TRACE=0
+SERVER_TARGET_EXPLICIT=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --help|-h) show_help; exit 0 ;;
+    --host|--port|--user|--provider|--prompt)
+      [[ $# -ge 2 ]] || { echo "llm-chat: $1 requires a value" >&2; exit 2; }
+      case "$1" in
+        --host) HOST="$2"; SERVER_TARGET_EXPLICIT=1 ;;
+        --port) PORT="$2"; SERVER_TARGET_EXPLICIT=1 ;;
+        --user) USER_NAME="$2" ;;
+        --provider) PROVIDER="$2" ;;
+        --prompt) PROMPT="$2" ;;
+      esac
+      shift 2 ;;
+    --tui-trace) TRACE=1; shift ;;
+    --*) echo "llm-chat: unknown option '$1'" >&2; exit 2 ;;
+    *) echo "llm-chat: unexpected argument '$1'" >&2; exit 2 ;;
+  esac
+done
+
+case "$PROVIDER" in
+  server|openai|deepseek) ;;
+  *) echo "llm-chat: provider must be server, openai, or deepseek" >&2; exit 2 ;;
+esac
+
+args=(--tui --user "$USER_NAME" --provider "$PROVIDER")
+if [[ "$PROVIDER" == "server" ]]; then
+  args+=(--host "$HOST" --port "$PORT")
+elif [[ "$SERVER_TARGET_EXPLICIT" -eq 1 ]]; then
+  echo "llm-chat: --host/--port cannot be combined with a direct provider" >&2
+  exit 2
+fi
+[[ -z "$PROMPT" ]] || args+=(--prompt "$PROMPT")
+[[ "$TRACE" -eq 0 ]] || args+=(--tui-trace)
+
+exec llmflask "${args[@]}"

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Manage locally downloaded Workbench results.
+# Env: LLMFLASK_RESULT_DIR
+
+show_help() {
+  echo "Usage: llm-results ACTION [ARGS...]"
+  echo "Actions: list, inspect, run, remove"
+}
+
+if [[ $# -eq 0 ]]; then
+  show_help
+  exit 0
+fi
+case "$1" in
+  --help|-h) show_help; exit 0 ;;
+  list|inspect|run|remove) ;;
+  *) echo "llm-results: unknown action '$1'" >&2; show_help >&2; exit 2 ;;
+esac
+
+exec llmflask result "$@"

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 2024-2026 LLMFlask contributors -->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLMFlask</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div id="toast" class="toast"></div>
+    <div id="sidebar-overlay" hidden></div>
+    <div id="app">
+        <aside id="sidebar">
+            <button id="new-chat-btn">+ New Chat</button>
+            <div id="sessions-list"></div>
+        </aside>
+        <main id="chat-area">
+            <div id="chat-header">
+                <button id="sidebar-toggle" type="button" aria-controls="sidebar" aria-expanded="false">Chats</button>
+                <select id="model-select"></select>
+                <div class="user-dropdown" id="user-dropdown">
+                    <button class="user-btn" id="user-btn">default</button>
+                    <div class="user-menu" id="user-menu" hidden></div>
+                </div>
+                <label class="search-toggle">
+                    <input type="checkbox" id="search-toggle"> Web Search
+                </label>
+                <div id="export-bar">
+                    <button id="export-md" title="Markdown exportieren">📥 MD</button>
+                    <button id="export-pdf" title="PDF exportieren">📄 PDF</button>
+                    <button id="export-ipynb" title="Jupyter Notebook exportieren">📓 ipynb</button>
+                </div>
+            </div>
+            <div id="messages"></div>
+            <button id="scroll-btn" onclick="scrollToBottom()">↓</button>
+            <div id="input-area">
+                <textarea id="user-input" rows="1" placeholder="Message... Enter=send, Shift+Enter=newline"></textarea>
+                <button id="send-btn">Send</button>
+            </div>
+        </main>
+    </div>
+    <script src="/static/chat_helpers.js"></script>
+    <script src="/static/chat.js"></script>
+</body>
+</html>

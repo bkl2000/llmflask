@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Direct batch query wrapper with configurable defaults.
+# Edit the DEFAULT_* variables below, or override via LLMFLASK_* env vars,
+# or pass --model/--provider/--host/--port flags at runtime.
+
+DEFAULT_MODEL="${DEFAULT_MODEL:-ollama/qwen3:14b}"
+DEFAULT_PROVIDER="${DEFAULT_PROVIDER:-server}"
+DEFAULT_HOST="${DEFAULT_HOST:-127.0.0.1}"
+
+show_help() {
+  echo "Usage: llmflaskcmd [--model MODELREF] [--provider PROVIDER] [--host HOST] TEXT"
+  echo "       echo TEXT | llmflaskcmd [--model MODELREF]"
+  echo ""
+  echo "Defaults (edit this script to change permanently):"
+  echo "  MODEL    = ${LLMFLASK_MODEL:-$DEFAULT_MODEL}"
+  echo "  PROVIDER = ${LLMFLASK_PROVIDER:-$DEFAULT_PROVIDER}"
+  echo "  HOST     = ${LLMFLASK_HOST:-$DEFAULT_HOST}"
+  echo "  PORT     = ${LLMFLASK_PORT:-5000}"
+}
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  show_help
+  exit 0
+fi
+
+MODEL="${LLMFLASK_MODEL:-$DEFAULT_MODEL}"
+PROVIDER="${LLMFLASK_PROVIDER:-$DEFAULT_PROVIDER}"
+HOST="${LLMFLASK_HOST:-$DEFAULT_HOST}"
+PORT="${LLMFLASK_PORT:-5000}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --tui|--server|--usepool|--models|pool|result|session|user|reset|run)
+      echo "llmflaskcmd: '$1' is not valid for batch mode. Use llmflask directly." >&2
+      exit 1 ;;
+    --host|--port|--model|--provider)
+      [[ $# -ge 2 ]] || { echo "llmflaskcmd: $1 requires a value" >&2; exit 2; }
+      case "$1" in
+        --host) HOST="$2" ;;
+        --port) PORT="$2" ;;
+        --model) MODEL="$2" ;;
+        --provider) PROVIDER="$2" ;;
+      esac
+      shift 2 ;;
+    --) shift; break ;;
+    --*) echo "llmflaskcmd: unknown option '$1'" >&2; exit 2 ;;
+    *)   break ;;
+  esac
+done
+
+ARGS=(--cmd --model "$MODEL")
+if [[ "$PROVIDER" != "server" ]]; then
+  ARGS+=(--provider "$PROVIDER")
+else
+  ARGS+=(--host "$HOST" --port "$PORT")
+fi
+
+if [[ $# -gt 0 ]]; then
+  exec llmflask "${ARGS[@]}" --text "$*"
+else
+  exec llmflask "${ARGS[@]}"
+fi

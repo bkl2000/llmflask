@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Run a downloaded pool result locally (setup.sh, then run.sh).
+# Usage: llm-runresult RESULT_NAME
+
+show_help() {
+  echo "Usage: llm-runresult RESULT_NAME"
+  echo ""
+  echo "Runs a previously downloaded pool result locally."
+  echo "(Auto-runs setup.sh first, then run.sh)."
+  echo ""
+  echo "List downloaded results: llm-results"
+  echo "Server-side execution:    llm-pool run POOL --model MODELREF"
+}
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  show_help
+  exit 0
+fi
+
+for arg in "$@"; do
+  case "$arg" in
+    --tui|--server|--cmd|--usepool|--models|pool|result|session|user|reset|run)
+      echo "llm-runresult: '$arg' is not valid here. Use llmflask directly." >&2
+      exit 1 ;;
+    --*)
+      echo "llm-runresult: unknown option '$arg'" >&2
+      exit 2 ;;
+  esac
+done
+
+if [[ $# -eq 0 ]]; then
+  show_help
+  exit 2
+fi
+
+exec llmflask result run "$1"

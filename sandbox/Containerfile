@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-2026 LLMFlask contributors
+FROM debian:13-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PATH="/opt/venv/bin:${PATH}"
+ENV MPLBACKEND=Agg
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        coreutils \
+        file \
+        findutils \
+        gawk \
+        grep \
+        sed \
+        jq \
+        ripgrep \
+        python3 \
+        python3-venv \
+        python3-pip \
+        pandoc \
+        poppler-utils \
+        texlive-xetex \
+        texlive-latex-recommended \
+        texlive-fonts-recommended \
+        fonts-dejavu \
+        imagemagick \
+        ffmpeg \
+        graphviz \
+        unzip \
+        zip \
+        tar \
+        gzip \
+        bzip2 \
+        xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m venv /opt/venv \
+    && /opt/venv/bin/python -m pip install --no-cache-dir --upgrade pip \
+    && /opt/venv/bin/python -m pip install --no-cache-dir \
+        numpy \
+        scipy \
+        pandas \
+        matplotlib \
+        pillow \
+        pypdf \
+        python-docx \
+        openpyxl
+
+RUN useradd --create-home --uid 10001 sandbox \
+    && mkdir -p /pool/input /pool/scripts /pool/output /pool/logs \
+    && chown -R sandbox:sandbox /pool
+
+USER sandbox
+WORKDIR /pool
+
+CMD ["bash"]

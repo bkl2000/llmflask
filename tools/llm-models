@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# List available models on the LLMFlask server
+# Usage: llm-models [--host HOST] [--port PORT]
+# Env:  LLMFLASK_HOST (default: 127.0.0.1), LLMFLASK_PORT (default: 5000)
+
+HOST="${LLMFLASK_HOST:-127.0.0.1}"
+PORT="${LLMFLASK_PORT:-5000}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --host|--port)
+      [[ $# -ge 2 ]] || { echo "llm-models: $1 requires a value" >&2; exit 2; }
+      if [[ "$1" == "--host" ]]; then HOST="$2"; else PORT="$2"; fi
+      shift 2 ;;
+    --help|-h) echo "Usage: llm-models [--host HOST] [--port PORT]" ; exit 0 ;;
+    *)
+      echo "llm-models: unknown option '$1'. Use --host/--port." >&2
+      exit 1 ;;
+  esac
+done
+exec llmflask --host "$HOST" --port "$PORT" --models

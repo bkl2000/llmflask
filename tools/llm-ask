@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Send a server-backed batch question (no chat history)
+# Usage: llm-ask [--host HOST] [--port PORT] --model MODELREF "question"
+#        echo "question" | LLMFLASK_MODEL=MODELREF llm-ask
+# Env:  LLMFLASK_HOST, LLMFLASK_PORT, LLMFLASK_MODEL
+
+show_help() {
+  echo "Usage: llm-ask [--host HOST] [--port PORT] --model MODELREF \"question\""
+  echo "       echo \"question\" | LLMFLASK_MODEL=MODELREF llm-ask"
+  echo ""
+  echo "List server models first with: llm-models"
+}
+
+if [[ $# -eq 0 ]] && [[ -t 0 ]]; then
+  show_help
+  exit 0
+fi
+
+HOST="${LLMFLASK_HOST:-127.0.0.1}"
+PORT="${LLMFLASK_PORT:-5000}"
+MODEL="${LLMFLASK_MODEL:-}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --help|-h) show_help; exit 0 ;;
+    --tui|--server|--usepool|--models|pool|result|session|user|reset)
+      echo "llm-ask: '$1' is not a valid flag for batch mode. Use llmflask directly." >&2; exit 1 ;;
+    --host|--port|--model)
+      [[ $# -ge 2 ]] || { echo "llm-ask: $1 requires a value" >&2; exit 2; }
+      case "$1" in
+        --host) HOST="$2" ;;
+        --port) PORT="$2" ;;
+        --model) MODEL="$2" ;;
+      esac
+      shift 2 ;;
+    --)      shift; break ;;
+    --*)     echo "llm-ask: unknown option '$1'" >&2; exit 2 ;;
+    *)       break ;;
+  esac
+done
+
+if [[ -z "$MODEL" ]]; then
+  echo "llm-ask: a model is required; use --model MODELREF or LLMFLASK_MODEL" >&2
+  echo "List server models with: llm-models" >&2
+  exit 2
+fi
+
+if [[ $# -gt 0 ]]; then
+    exec llmflask --host "$HOST" --port "$PORT" --model "$MODEL" --cmd --text "$*"
+else
+    exec llmflask --host "$HOST" --port "$PORT" --model "$MODEL" --cmd
+fi

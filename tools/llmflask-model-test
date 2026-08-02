@@ -1,0 +1,255 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export LC_ALL=C.UTF-8
+
+CACHE_FILE="${LLMFLASK_MODEL_TEST_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/llmflask/model-test.tsv}"
+_QUICK_PROVIDERS="${LLMFLASK_MODEL_TEST_QUICK_PROVIDERS:-ollama,zen}"
+
+show_help() {
+    cat <<'EOF'
+Usage: llmflask-model-test [--help] [--show] [--clear] [--refresh [MODEL]] [--quick] [--timeout SEC] [MODEL...]
+
+Test every model returned by llmflask with the prompt "Answer only with OK."
+Results are cached so only untested (or --refresh) models invoke the LLM.
+
+Options:
+  --help, -h         Show this help, then exit.
+  --show             Display cached results. Does not run any test.
+  --clear            Delete the result cache.
+  --refresh          Retest every model (ignore cache).
+  --refresh MODEL    Retest MODEL only (repeatable; implies --show for others).
+  --quick            Only test selected providers (default: ollama,zen).
+                     Override with LLMFLASK_MODEL_TEST_QUICK_PROVIDERS.
+  --timeout SEC      Per-model timeout in seconds (default: 60).
+
+Cache: CACHE_FILE (override with LLMFLASK_MODEL_TEST_CACHE)
+EOF
+}
+
+_sanitize() {
+    local raw="$1"
+    local first_line
+    first_line="${raw%%$'\n'*}"
+    first_line="${first_line//$'\t'/ }"
+    printf '%s' "$first_line"
+}
+
+_print_table() {
+    local model status duration response cached
+    printf '%-50s %-12s %-12s %s\n' "MODEL" "STATUS" "DURATION" "RESPONSE"
+    for i in "${!ROW_MODELS[@]}"; do
+        model="${ROW_MODELS[$i]}"
+        status="${ROW_STATUSES[$i]}"
+        duration="${ROW_DURATIONS[$i]}"
+        response="${ROW_RESPONSES[$i]}"
+        cached="${ROW_CACHED[$i]}"
+        local suffix=""
+        if [ "$cached" = "true" ]; then suffix=" (cached)"; fi
+        printf '%-50s %-12s %-12s %s%s\n' "$model" "$status" "$duration" "$response" "$suffix"
+    done
+}
+
+_print_table_from_cache() {
+    local cfile="$1"
+    if [ ! -f "$cfile" ] || [ ! -s "$cfile" ]; then
+        echo "No cached results."
+        return
+    fi
+    printf '%-50s %-12s %-12s %s\n' "MODEL" "STATUS" "DURATION" "RESPONSE"
+    while IFS=$'\t' read -r modelref status duration tested response; do
+        local disp="${status}"
+        printf '%-50s %-12s %-12s %s (cached)\n' "$modelref" "$status" "${duration}s" "$response"
+    done < "$cfile"
+}
+
+# --- help before anything ---
+for arg in "$@"; do
+    case "$arg" in
+        --help|-h) show_help; exit 0 ;;
+    esac
+done
+
+# --- parse args ---
+MODE=""
+REFRESH_ALL=false
+declare -a REFRESH_MODELS=()
+TIMEOUT=60
+QUICK=false
+declare -a FILTER_MODELS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --show) MODE="show"; shift ;;
+        --clear) MODE="clear"; shift ;;
+        --refresh)
+            if [[ "${2:-}" != "" && "${2:0:1}" != "-" ]]; then
+                REFRESH_MODELS+=("$2"); shift
+            else
+                REFRESH_ALL=true
+            fi
+            shift ;;
+        --quick) QUICK=true; shift ;;
+        --timeout)
+            [[ $# -ge 2 ]] || { echo "llmflask-model-test: --timeout requires a value" >&2; exit 2; }
+            TIMEOUT="$2"; shift 2 ;;
+        --*)
+            echo "llmflask-model-test: unknown flag '$1'. Use --help." >&2; exit 2 ;;
+        *)
+            FILTER_MODELS+=("$1"); shift ;;
+    esac
+done
+
+if [ "$MODE" != "" ]; then
+    if [ "$MODE" = "clear" ] && [ "$REFRESH_ALL" = true ]; then
+        echo "llmflask-model-test: cannot combine --clear with --refresh." >&2; exit 2
+    fi
+    if [ "$MODE" = "show" ] && [ "$REFRESH_ALL" = true ]; then
+        echo "llmflask-model-test: cannot combine --show with --refresh." >&2; exit 2
+    fi
+fi
+
+# --- dep check ---
+command -v llmflask >/dev/null 2>&1 || {
+    echo "llmflask-model-test: error: llmflask is not installed. (PATH)" >&2
+    exit 2
+}
+
+# --- clear ---
+if [ "$MODE" = "clear" ]; then
+    rm -f "$CACHE_FILE"
+    echo "Cache cleared: $CACHE_FILE"
+    exit 0
+fi
+
+# --- show ---
+if [ "$MODE" = "show" ]; then
+    _print_table_from_cache "$CACHE_FILE"
+    exit 0
+fi
+
+# --- fetch models ---
+models_list=$(llmflask --models 2>/dev/null) || {
+    echo "llmflask-model-test: error: llmflask --models failed." >&2
+    exit 2
+}
+
+# --- collect (modelref, provider) ---
+declare -a COLLECT_MODELS=()
+declare -a COLLECT_PROVIDERS=()
+
+while IFS=$'\t' read -r modelref provider label size vram; do
+    [ "$modelref" = "MODELREF" ] && continue
+    [ -z "$modelref" ] && continue
+    if $QUICK; then
+        found=false
+        IFS=',' read -ra _quick_list <<< "$_QUICK_PROVIDERS"
+        for _qp in "${_quick_list[@]}"; do
+            if [ "${_qp# }" = "$provider" ]; then found=true; break; fi
+        done
+        $found || continue
+    fi
+    if [ "${#FILTER_MODELS[@]}" -gt 0 ]; then
+        found=false
+        for fm in "${FILTER_MODELS[@]}"; do
+            [ "$fm" = "$modelref" ] && found=true && break
+        done
+        $found || continue
+    fi
+    COLLECT_MODELS+=("$modelref")
+    COLLECT_PROVIDERS+=("$provider")
+done <<< "$models_list"
+
+if [ "${#COLLECT_MODELS[@]}" -eq 0 ]; then
+    echo "llmflask-model-test: no models to test."
+    exit 0
+fi
+
+# --- ensure cache dir ---
+CACHE_DIR="$(dirname "$CACHE_FILE")"
+mkdir -p "$CACHE_DIR" 2>/dev/null || true
+
+# --- test loop ---
+NEW_COUNT=0
+CACHED_COUNT=0
+FAILED_COUNT=0
+
+tmp_out=$(mktemp)
+trap 'rm -f "$tmp_out"' EXIT
+
+declare -a ROW_MODELS=()
+declare -a ROW_STATUSES=()
+declare -a ROW_DURATIONS=()
+declare -a ROW_RESPONSES=()
+declare -a ROW_CACHED=()
+
+for i in "${!COLLECT_MODELS[@]}"; do
+    modelref="${COLLECT_MODELS[$i]}"
+
+    already_cached=false
+    if [ -f "$CACHE_FILE" ] && grep -qF "$modelref"$'\t' "$CACHE_FILE" 2>/dev/null; then
+        already_cached=true
+    fi
+
+    do_test=false
+    if $REFRESH_ALL; then
+        do_test=true
+    else
+        for rm in "${REFRESH_MODELS[@]}"; do
+            if [ "$rm" = "$modelref" ]; then
+                do_test=true
+                break
+            fi
+        done
+    fi
+
+    if ! $do_test && $already_cached; then
+        CACHED_COUNT=$((CACHED_COUNT + 1))
+        ROW_MODELS+=("$modelref")
+        ROW_STATUSES+=("cached")
+        ROW_DURATIONS+=("-")
+        ROW_RESPONSES+=("")
+        ROW_CACHED+=("true")
+        continue
+    fi
+
+    # --- execute ---
+    exit_code=0
+    start=$SECONDS
+    timeout "$TIMEOUT" llmflask --cmd --model "$modelref" "Answer only with OK." > "$tmp_out" 2>/dev/null || exit_code=$?
+    duration=$((SECONDS - start))
+    if [ "$exit_code" = 124 ] && [ "$duration" -eq 0 ]; then duration=1; fi
+
+    response_raw=$(cat "$tmp_out" 2>/dev/null || true)
+    response=$(_sanitize "$response_raw")
+
+    if [ "$exit_code" = 0 ]; then
+        status="OK"
+    elif [ "$exit_code" = 124 ]; then
+        status="TIMEOUT"
+        FAILED_COUNT=$((FAILED_COUNT + 1))
+    else
+        status="ERROR"
+        FAILED_COUNT=$((FAILED_COUNT + 1))
+    fi
+
+    NEW_COUNT=$((NEW_COUNT + 1))
+
+    # update cache
+    if [ -f "$CACHE_FILE" ]; then
+        grep -vF "$modelref"$'\t' "$CACHE_FILE" > "${CACHE_FILE}.tmp" 2>/dev/null || true
+        mv "${CACHE_FILE}.tmp" "$CACHE_FILE"
+    fi
+    timestamp=$(date -Iseconds)
+    printf '%s\t%s\t%s\t%s\t%s\n' "$modelref" "$status" "$duration" "$timestamp" "$response" >> "$CACHE_FILE"
+
+    ROW_MODELS+=("$modelref")
+    ROW_STATUSES+=("$status")
+    ROW_DURATIONS+=("${duration}s")
+    ROW_RESPONSES+=("$response")
+    ROW_CACHED+=("false")
+done
+
+# --- output ---
+_print_table
+echo ""
+echo "Tested: $NEW_COUNT  Cached: $CACHED_COUNT  Failed: $FAILED_COUNT  Total: ${#COLLECT_MODELS[@]}"

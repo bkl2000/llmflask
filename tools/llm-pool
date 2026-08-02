@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Process a file in the pool sandbox
+# Usage: llm-pool [--host HOST] [--port PORT] --model MODELREF FILE "request"
+#        llm-pool [--host HOST] [--port PORT] --model MODELREF --file FILE --text "request"
+#        cat request.txt | llm-pool --model MODELREF --file FILE
+# Env:  LLMFLASK_HOST, LLMFLASK_PORT, LLMFLASK_MODEL
+
+show_help() {
+  echo "Usage: llm-pool [--host HOST] [--port PORT] --model MODELREF FILE \"request\""
+  echo "       llm-pool [--host HOST] [--port PORT] --model MODELREF --file FILE --text \"request\""
+  echo "       cat request.txt | llm-pool --model MODELREF --file FILE"
+  echo ""
+  echo "List server models first with: llm-models"
+}
+
+if [[ $# -eq 0 ]] && [[ -t 0 ]]; then
+  show_help
+  exit 0
+fi
+
+HOST="${LLMFLASK_HOST:-127.0.0.1}"
+PORT="${LLMFLASK_PORT:-5000}"
+MODEL="${LLMFLASK_MODEL:-}"
+FILE=""
+REQUEST=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --help|-h) show_help; exit 0 ;;
+    --tui|--cmd|--server|--models|pool|result|session|user|reset)
+      echo "llm-pool: '$1' is not a valid flag for pool mode. Use llmflask directly." >&2; exit 1 ;;
+    --host|--port|--model|--file|--text)
+      [[ $# -ge 2 ]] || { echo "llm-pool: $1 requires a value" >&2; exit 2; }
+      case "$1" in
+        --host) HOST="$2" ;;
+        --port) PORT="$2" ;;
+        --model) MODEL="$2" ;;
+        --file) FILE="$2" ;;
+        --text) REQUEST="$2" ;;
+      esac
+      shift 2 ;;
+    --)      shift; break ;;
+    --*)     echo "llm-pool: unknown option '$1'" >&2; exit 2 ;;
+    *)       break ;;
+  esac
+done
+
+if [[ -z "$FILE" && $# -gt 0 ]]; then
+  FILE="$1"
+  shift
+fi
+if [[ $# -gt 0 ]]; then
+  if [[ -z "$REQUEST" ]]; then
+    REQUEST="$*"
+  else
+    echo "llm-pool: unexpected positional arguments: $*" >&2
+    exit 2
+  fi
+fi
+if [[ -z "$FILE" ]]; then
+  show_help >&2
+  exit 2
+fi
+if [[ -z "$MODEL" ]]; then
+  echo "llm-pool: a model is required; use --model MODELREF or LLMFLASK_MODEL" >&2
+  echo "List server models with: llm-models" >&2
+  exit 2
+fi
+
+if [[ -n "$REQUEST" ]]; then
+    exec llmflask --host "$HOST" --port "$PORT" --model "$MODEL" --usepool --file "$FILE" --text "$REQUEST"
+else
+    exec llmflask --host "$HOST" --port "$PORT" --model "$MODEL" --usepool --file "$FILE"
+fi
