@@ -140,6 +140,10 @@ def test_models_accepts_direct_provider(monkeypatch, capsys):
             ["llmflask", "--models", "--provider", "deepseek", "--host", "server"],
             "cannot be combined",
         ),
+        (
+            ["llmflask", "--server", "--listen", "0.0.0.0", "--host", "192.0.2.5"],
+            "cannot be combined",
+        ),
         (["llmflask", "--cmd", "--text", "", "--model", "ollama/test"], "non-empty"),
         (["llmflask", "--models", "--port", "70000"], "between 1 and 65535"),
         (
@@ -451,3 +455,45 @@ def test_run_hint_dispatches_correctly(capsys):
     captured = capsys.readouterr()
     assert "pool run" in captured.err
     assert "result run" in captured.err
+
+
+# --- LAN-UX-01: --listen and --trusted-host ---
+
+def test_listen_flag_parsed_correctly(monkeypatch):
+    from llmflask.cli_parser import parse
+
+    args = parse(["--server", "--listen", "0.0.0.0", "--port", "5050"])
+    assert args.listen == "0.0.0.0"
+
+
+def test_listen_defaults_to_none(monkeypatch):
+    from llmflask.cli_parser import parse
+
+    args = parse(["--server"])
+    assert args.listen is None
+
+
+def test_trusted_host_parsed_correctly(monkeypatch):
+    from llmflask.cli_parser import parse
+
+    args = parse(["--server", "--trusted-host", "myhost.local"])
+    assert args.trusted_hosts == ["myhost.local"]
+
+
+def test_trusted_host_repeatable(monkeypatch):
+    from llmflask.cli_parser import parse
+
+    args = parse(
+        ["--server", "--trusted-host", "a.local", "--trusted-host", "b.local"]
+    )
+    assert args.trusted_hosts == ["a.local", "b.local"]
+
+
+def test_trusted_host_requires_server_mode(monkeypatch, capsys):
+    from llmflask.cli_parser import parse
+    import pytest
+
+    with pytest.raises(SystemExit) as error:
+        parse(["--cmd", "--model", "x", "--text", "hi", "--trusted-host", "h"])
+    assert error.value.code == 2
+    assert "--trusted-host" in capsys.readouterr().err

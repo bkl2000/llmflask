@@ -80,23 +80,39 @@ SSH provides encryption and authentication. LLMFlask does not.
 
 ## Protected-LAN opt-in
 
-Only when every client on the reachable network is trusted, bind to the
-server's LAN address and list every hostname or IP address clients will use:
+Only when every client on the reachable network is trusted, listen on the LAN.
+The simple wildcard command accepts IP-literal Host headers; use `hostname -I`
+and connect to the server's real address rather than `0.0.0.0`:
 
 ```bash
-LLMFLASK_HOST=192.0.2.20 \
-LLMFLASK_TRUSTED_HOSTS=192.0.2.20,llmflask.internal \
-  ~/bin/llmflask --server production --port 5000
-
-# Equivalent explicit bind flag:
-LLMFLASK_TRUSTED_HOSTS=192.0.2.20,llmflask.internal \
-  ~/bin/llmflask --server production --host 192.0.2.20 --port 5000
+~/bin/llmflask --server production --listen 0.0.0.0 --port 5000
+hostname -I
 ```
 
-`LLMFLASK_TRUSTED_HOSTS` is comma-separated. Each entry is one exact hostname
-or IP address without a scheme, path, port, or wildcard. A rejected Host header
-returns HTTP 400. The allowlist is not authentication, so firewall port 5000
-to the trusted clients only. Do not expose LLMFlask directly to the internet.
+To restrict the socket to one interface, bind its exact address; it is trusted
+automatically:
+
+```bash
+~/bin/llmflask --server production --listen 192.0.2.20 --port 5000
+```
+
+An intentional DNS alias requires an exact repeatable option:
+
+```bash
+~/bin/llmflask --server production --listen 192.0.2.20 --port 5000 \
+  --trusted-host llmflask.internal
+```
+
+Each trusted-host entry is one exact hostname or IP address without a scheme,
+path, port, or wildcard. A rejected Host header returns HTTP 400 and an exact
+restart example, such as `--trusted-host llmflask.internal`. If startup rejects
+an entry, remove its scheme, path, port, user information, or wildcard and run
+the corrected command. `LLMFLASK_HOST` and comma-separated
+`LLMFLASK_TRUSTED_HOSTS` remain available for service automation. Server-side
+`--host` remains a temporary compatibility alias, but new startup commands
+should use `--listen`. The allowlist is not authentication, so firewall port
+5000 to the trusted clients only. Do not expose LLMFlask directly to the
+internet.
 
 Custom HTTP clients must send `X-LLMFlask-Request: 1` with all `POST`, `PUT`,
 `PATCH`, and `DELETE` requests. The same-origin Web UI and bundled CLI add the

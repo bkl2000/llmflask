@@ -14,7 +14,7 @@ from .routes.workbench import workbench_bp
 from .request_security import install_request_security
 
 
-def create_app():
+def create_app(bind_address: str = "127.0.0.1", extra_trusted: frozenset[str] | None = None):
     app = Flask(
         __name__,
         template_folder=os.path.join(os.path.dirname(__file__), "templates"),
@@ -22,7 +22,7 @@ def create_app():
     )
     app.config["DB_PATH"] = config.prepare_database_path(config.DATABASE)
     app.config["MAX_CONTENT_LENGTH"] = config.MAX_UPLOAD_BYTES
-    install_request_security(app, config.TRUSTED_HOSTS)
+    install_request_security(app, config.TRUSTED_HOSTS, bind_address, extra_trusted=extra_trusted)
 
     app.register_blueprint(chat_bp, url_prefix="/api")
     app.register_blueprint(models_bp, url_prefix="/api")

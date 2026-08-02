@@ -33,14 +33,15 @@ Flask application serving:
 - Web GUI at `/`
 
 The server binds to `127.0.0.1` by default. Remote access should normally use
-an SSH tunnel. An explicit LAN bind through `LLMFLASK_HOST` or `--host` also
-requires a comma-separated `LLMFLASK_TRUSTED_HOSTS` allowlist. Unexpected Host
-headers receive HTTP 400. State-changing API requests (`POST`, `PUT`, `PATCH`,
-and `DELETE`) require `X-LLMFlask-Request: 1` and receive HTTP 403 when the
-header is absent or wrong; the bundled clients add it automatically. A browser
-Origin that differs from the request scheme, hostname, or port also receives
-HTTP 403. These are request-boundary checks, not authentication or tenant
-isolation.
+an SSH tunnel. `--listen` explicitly opts into a LAN bind. Wildcard binds accept
+IP-literal Host headers, specific binds trust their exact address, and
+repeatable `--trusted-host` values add intentional DNS aliases. Environment
+variables remain the advanced automation equivalent. Unexpected Host headers
+receive HTTP 400. State-changing API requests (`POST`, `PUT`, `PATCH`, and
+`DELETE`) require `X-LLMFlask-Request: 1` and receive HTTP 403 when the header
+is absent or wrong; the bundled clients add it automatically. A browser Origin
+that differs from the request scheme, hostname, or port also receives HTTP 403.
+These are request-boundary checks, not authentication or tenant isolation.
 
 ### Pool Workbench (`llmflask --usepool`)
 

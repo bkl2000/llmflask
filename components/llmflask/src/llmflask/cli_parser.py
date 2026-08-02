@@ -56,6 +56,8 @@ _VALUE_FLAGS: dict[str, tuple[str, Callable[[str], Any] | None]] = {
     "--name":         ("pool_name", None),
     "--result-dir":   ("result_dir", None),
     "--server":       ("server", None),
+    "--listen":       ("listen", None),
+    "--trusted-host": ("_trusted_host_acc", None),
 }
 
 # Boolean flags (presence sets attr to True).
@@ -124,6 +126,9 @@ class ParsedArgs:
     result_dir: str | None = None
     no_result: bool = False
     search: bool = False
+    # Server flags
+    listen: str | None = None
+    trusted_hosts: list[str] | None = None
     # Subcommand positional args
     name: str | None = None
     old: str | None = None
@@ -321,6 +326,10 @@ def parse(argv: list[str]) -> ParsedArgs:
                         sys.exit(2)
                 if t == "--server":
                     args.server = val
+                elif t == "--trusted-host":
+                    if args.trusted_hosts is None:
+                        args.trusted_hosts = []
+                    args.trusted_hosts.append(val)
                 else:
                     setattr(args, attr, val)
                 i += 2
@@ -404,6 +413,22 @@ def parse(argv: list[str]) -> ParsedArgs:
 
     if args.file is not None and not args.usepool:
         _print_error("--file is only valid with --usepool")
+        sys.exit(2)
+
+    if args.listen is not None and "--server" not in active_modes:
+        _print_error("--listen is only valid with --server")
+        sys.exit(2)
+
+    if args.listen is not None and args.host is not None:
+        _print_error(
+            "--listen and --host cannot be combined in server mode. "
+            "Use --listen ADDRESS for the server bind address, "
+            "or --host ADDRESS alone for compatibility."
+        )
+        sys.exit(2)
+
+    if args.trusted_hosts is not None and "--server" not in active_modes:
+        _print_error("--trusted-host is only valid with --server")
         sys.exit(2)
 
     if not active_modes and args.command is None:
@@ -581,6 +606,7 @@ def print_help() -> None:
         "Server:\n"
         "  llmflask --server                  Flask dev server, threaded (default)\n"
         "  llmflask --server production       Gunicorn, 1 worker x 16 threads\n"
+        "  llmflask --server production --listen ADDRESS   Protected-LAN opt-in\n"
         "\n"
         "Pool Workbench (code generation + sandbox execution):\n"
         '  llmflask --usepool --model MODELREF "task"      Generate & run code\n'
@@ -615,8 +641,11 @@ def print_help() -> None:
         "\n"
         "Flags (use with modes listed above):\n"
         "  Connection:\n"
-        "    --host HOST          Server address (default: 127.0.0.1)\n"
+        "    --host HOST          Client target; server compatibility alias\n"
         "    --port PORT          Server port (default: 5000)\n"
+        "  Server Options (with --server):\n"
+        "    --listen ADDRESS     Bind address (default: 127.0.0.1)\n"
+        "    --trusted-host HOST  Allow an exact DNS alias (repeatable)\n"
         "  Provider:\n"
         "    --provider NAME          server or configured remote provider\n"
         "  Profile & Session:\n"

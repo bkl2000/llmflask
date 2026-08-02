@@ -27,11 +27,15 @@ multi-user use requires a separate authentication and authorization layer,
 TLS termination or a reviewed reverse proxy, firewall rules, and a deployment
 threat model. These controls are not provided by the current application.
 
-For a protected LAN, set the server bind address with `LLMFLASK_HOST` or
-`--host`, and set `LLMFLASK_TRUSTED_HOSTS` to the comma-separated hostnames and
-IP addresses that clients use. This Host-header allowlist limits unexpected
-routing; it is not user authentication. State-changing API requests also
-require `X-LLMFlask-Request: 1`. The same-origin Web UI and bundled CLI add it
+For a protected LAN, start with `llmflask --server production --listen 0.0.0.0`
+and connect using the server's real IP address. IP-literal Host headers are
+accepted on wildcard IPv4 or IPv6 binds; unrelated DNS names are not. A specific
+`--listen` address trusts only that exact address or hostname. Add an intentional
+DNS alias with repeatable `--trusted-host HOST`. `LLMFLASK_HOST` and the
+comma-separated `LLMFLASK_TRUSTED_HOSTS` remain advanced service/automation
+equivalents. This Host-header allowlist limits unexpected routing; it is not
+user authentication. State-changing API requests also require
+`X-LLMFlask-Request: 1`. The same-origin Web UI and bundled CLI add it
 automatically. When a browser sends an `Origin`, it must match the request's
 scheme, hostname, and port. These checks reduce browser-based request abuse but
 do not turn an untrusted network into a supported deployment.

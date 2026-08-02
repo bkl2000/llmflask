@@ -887,7 +887,7 @@ def test_cli_server_production_runs_gunicorn(monkeypatch):
     calls = []
     fake_app_module = types.ModuleType("llmflask.app")
 
-    def fake_create_app():
+    def fake_create_app(**kw):
         return "app"
 
     def fake_run_gunicorn(app, host, port):
@@ -916,7 +916,7 @@ def test_cli_server_dev_uses_flask_run(monkeypatch):
         def run(self, **kwargs):
             calls.append(kwargs)
 
-    fake_app_module.create_app = lambda: FakeApp()
+    fake_app_module.create_app = lambda **kw: FakeApp()
     monkeypatch.setitem(sys.modules, "llmflask.app", fake_app_module)
     monkeypatch.setattr("llmflask.__main__._verify_server_requirements", lambda: True)
     monkeypatch.setattr(sys, "argv", ["llmflask", "--server", "--host", "0.0.0.0", "--port", "5050"])
@@ -2724,7 +2724,7 @@ class TestCliValidation:
 
         calls = []
         fake_app = types.ModuleType("llmflask.app")
-        fake_app.create_app = lambda: type("A", (), {"run": lambda s, **kw: calls.append(kw)})()
+        fake_app.create_app = lambda **kw: type("A", (), {"run": lambda s, **kw: calls.append(kw)})()
         monkeypatch.setitem(sys.modules, "llmflask.app", fake_app)
         monkeypatch.setattr("llmflask.__main__._verify_server_requirements", lambda: True)
         monkeypatch.setattr(sys, "argv", ["llmflask", "--server", "--host", "0", "--port", "5"])
@@ -2741,7 +2741,7 @@ class TestCliValidation:
             calls.append(("gunicorn", host, port))
 
         monkeypatch.setattr(cli_main, "run_gunicorn", fake_gunicorn)
-        monkeypatch.setattr("llmflask.app.create_app", lambda: "app")
+        monkeypatch.setattr("llmflask.app.create_app", lambda **kw: "app")
         monkeypatch.setattr(cli_main, "_verify_server_requirements", lambda: True)
         monkeypatch.setattr(sys, "argv", ["llmflask", "--server", "production", "--host", "0", "--port", "5"])
 
@@ -2759,6 +2759,152 @@ class TestCliValidation:
     def test_provider_needs_tui_or_cmd(self, monkeypatch, capsys):
         assert self._run(["llmflask", "--server", "--provider", "deepseek"], monkeypatch) == 2
         assert "--provider requires" in capsys.readouterr().err
+
+    def test_listen_host_conflict_rejected(self, monkeypatch, capsys):
+        assert self._run(
+            ["llmflask", "--server", "--listen", "0.0.0.0", "--host", "x"],
+            monkeypatch,
+        ) == 2
+        assert "cannot be combined" in capsys.readouterr().err
+
+    def test_listen_flag_starts_server(self, monkeypatch):
+        import sys, types
+        from llmflask.__main__ import main
+
+        calls = []
+        fake_app = types.ModuleType("llmflask.app")
+        fake_app.create_app = lambda **kw: type("A", (), {"run": lambda s, **kw2: calls.append(kw2)})()
+        monkeypatch.setitem(sys.modules, "llmflask.app", fake_app)
+        monkeypatch.setattr("llmflask.__main__._verify_server_requirements", lambda: True)
+        monkeypatch.setattr(sys, "argv", ["llmflask", "--server", "--listen", "0.0.0.0", "--port", "5050"])
+
+        main()
+        assert calls == [{"host": "0.0.0.0", "port": 5050, "debug": False, "threaded": True}]
+
+    def test_listen_flag_with_production(self, monkeypatch):
+        import sys
+        from llmflask import __main__ as cli_main
+
+        calls = []
+        def fake_gunicorn(app, host, port):
+            calls.append(("gunicorn", host, port))
+
+        monkeypatch.setattr(cli_main, "run_gunicorn", fake_gunicorn)
+        monkeypatch.setattr("llmflask.app.create_app", lambda **kw: "app")
+        monkeypatch.setattr(cli_main, "_verify_server_requirements", lambda: True)
+        monkeypatch.setattr(sys, "argv", ["llmflask", "--server", "production", "--listen", "0.0.0.0", "--port", "5050"])
+
+        cli_main.main()
+        assert calls == [("gunicorn", "0.0.0.0", 5050)]
+
+    def test_listen_default_is_loopback(self, monkeypatch):
+        import sys, types
+        from llmflask.__main__ import main
+
+        calls = []
+        fake_app = types.ModuleType("llmflask.app")
+        fake_app.create_app = lambda **kw: type("A", (), {"run": lambda s, **kw2: calls.append(kw2)})()
+        monkeypatch.setitem(sys.modules, "llmflask.app", fake_app)
+        monkeypatch.setattr("llmflask.__main__._verify_server_requirements", lambda: True)
+        monkeypatch.setattr(sys, "argv", ["llmflask", "--server"])
+
+        main()
+        assert calls == [{"host": "127.0.0.1", "port": 5000, "debug": False, "threaded": True}]
+
+    def test_host_flag_still_works_for_server_compat(self, monkeypatch):
+        import sys, types
+        from llmflask.__main__ import main
+
+        calls = []
+        fake_app = types.ModuleType("llmflask.app")
+        fake_app.create_app = lambda **kw: type("A", (), {"run": lambda s, **kw2: calls.append(kw2)})()
+        monkeypatch.setitem(sys.modules, "llmflask.app", fake_app)
+        monkeypatch.setattr("llmflask.__main__._verify_server_requirements", lambda: True)
+        monkeypatch.setattr(sys, "argv", ["llmflask", "--server", "--host", "0.0.0.0", "--port", "5050"])
+
+        main()
+        assert calls == [{"host": "0.0.0.0", "port": 5050, "debug": False, "threaded": True}]
+
+    def test_invalid_trusted_host_has_no_traceback(self, monkeypatch, capsys):
+        import sys
+        from llmflask import __main__ as cli_main
+
+        monkeypatch.setattr(cli_main, "_verify_server_requirements", lambda: True)
+        monkeypatch.setattr(
+            "llmflask.app.create_app",
+            lambda **kw: (_ for _ in ()).throw(
+                ValueError("Invalid --trusted-host entry 'https://bad.example'")
+            ),
+        )
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "llmflask",
+                "--server",
+                "--trusted-host",
+                "https://bad.example",
+            ],
+        )
+
+        assert cli_main.main() == 2
+        error = capsys.readouterr().err
+        assert "Invalid --trusted-host" in error
+        assert "--trusted-host llmflask.internal" in error
+        assert "Traceback" not in error
+
+
+def test_non_loopback_hostname_prints_startup_warning(monkeypatch, capsys):
+    import socket
+    from llmflask import __main__ as cli_main
+
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.20", 0))
+        ],
+    )
+
+    cli_main._check_listen_address("llmflask.internal", 5000)
+
+    error = capsys.readouterr().err
+    assert "No authentication" in error
+    assert "llmflask.internal:5000" in error
+
+
+def test_wildcard_ip_discovery_suppresses_hostname_stderr(monkeypatch):
+    import socket
+    import subprocess
+    from llmflask import __main__ as cli_main
+
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("0.0.0.0", 0))
+        ],
+    )
+    calls = []
+
+    def fake_check_output(command, **kwargs):
+        calls.append((command, kwargs))
+        return "192.0.2.20\n"
+
+    monkeypatch.setattr(subprocess, "check_output", fake_check_output)
+
+    cli_main._check_listen_address("0.0.0.0", 5000)
+
+    assert calls == [
+        (
+            ["hostname", "-I"],
+            {
+                "text": True,
+                "timeout": 2,
+                "stderr": subprocess.DEVNULL,
+            },
+        )
+    ]
 
 
 def test_usepool_parses_source_and_request(monkeypatch):
@@ -2954,7 +3100,7 @@ def test_server_without_value_defaults_dev(monkeypatch):
     def fake_app_run(self, **kwargs):
         calls.append(kwargs)
 
-    def fake_create_app():
+    def fake_create_app(**kw):
         return type("FakeApp", (), {"run": fake_app_run})()
 
     monkeypatch.setattr(sys, "argv", ["llmflask", "--server", "--host", "0.0.0.0", "--port", "5050"])
@@ -2971,7 +3117,7 @@ def test_server_blocks_when_ollama_unreachable(monkeypatch, capsys):
 
     calls = []
 
-    def fake_create_app():
+    def fake_create_app(**kw):
         calls.append("create_app")
         return None
 
@@ -2999,7 +3145,7 @@ def test_server_starts_when_ollama_reachable(monkeypatch, capsys):
         def run(self, **kwargs):
             calls.append(kwargs)
 
-    monkeypatch.setattr("llmflask.app.create_app", lambda: FakeApp())
+    monkeypatch.setattr("llmflask.app.create_app", lambda **kw: FakeApp())
     monkeypatch.setattr(cli_main, "ollama_reachable", lambda: True)
     monkeypatch.setattr(sys, "argv", ["llmflask", "--server", "--host", "0.0.0.0", "--port", "5050"])
 
@@ -3020,7 +3166,7 @@ def test_server_skips_requirement_check_with_env_override(monkeypatch, capsys):
             calls.append(kwargs)
 
     monkeypatch.setenv("LLMFLASK_SKIP_REQUIREMENTS", "1")
-    monkeypatch.setattr("llmflask.app.create_app", lambda: FakeApp())
+    monkeypatch.setattr("llmflask.app.create_app", lambda **kw: FakeApp())
     monkeypatch.setattr(cli_main, "ollama_reachable", lambda: False)
     monkeypatch.setattr(sys, "argv", ["llmflask", "--server", "--host", "0.0.0.0", "--port", "5050"])
 

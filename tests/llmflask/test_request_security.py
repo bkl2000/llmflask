@@ -11,12 +11,12 @@ from llmflask.app import create_app
 def app_factory(tmp_path, monkeypatch):
     counter = 0
 
-    def make_app(*, trusted_hosts=""):
+    def make_app(*, trusted_hosts="", bind_address="127.0.0.1", extra_trusted=None):
         nonlocal counter
         counter += 1
         monkeypatch.setattr(config, "DATABASE", str(tmp_path / f"test-{counter}.db"))
         monkeypatch.setattr(config, "TRUSTED_HOSTS", trusted_hosts)
-        app = create_app()
+        app = create_app(bind_address=bind_address, extra_trusted=extra_trusted)
         app.config["TESTING"] = True
         return app
 
@@ -191,3 +191,129 @@ def test_workbench_is_disabled_by_default(app_factory, monkeypatch):
 
     assert response.status_code == 403
     assert "Workbench is disabled" in response.get_json()["error"]
+
+
+# --- LAN-UX-01: --listen and --trusted-host ---
+
+def test_default_bind_trusts_loopback_only(app_factory):
+    app = app_factory()
+    assert app.config["LLMFLASK_TRUSTED_HOSTS"] == frozenset({"localhost", "127.0.0.1", "::1"})
+    client = app.test_client()
+    for host in ("localhost", "127.0.0.1", "[::1]:5000"):
+        assert client.get("/", headers={"Host": host}).status_code == 200
+
+
+def test_specific_ipv4_bind_auto_trusts_that_ip(app_factory):
+    app = app_factory(bind_address="192.0.2.5")
+    assert "192.0.2.5" in app.config["LLMFLASK_TRUSTED_HOSTS"]
+
+
+def test_specific_ipv4_trusts_loopback_too(app_factory):
+    app = app_factory(bind_address="192.0.2.5")
+    trusted = app.config["LLMFLASK_TRUSTED_HOSTS"]
+    assert "127.0.0.1" in trusted
+    assert "::1" in trusted
+    assert "localhost" in trusted
+
+
+def test_specific_ipv4_rejects_dns_names(app_factory):
+    app = app_factory(bind_address="192.0.2.5")
+    client = app.test_client()
+    resp = client.get("/", headers={"Host": "server.example.test"})
+    assert resp.status_code == 400
+
+
+def test_ipv4_wildcard_permits_ip_literal_hosts(app_factory):
+    app = app_factory(bind_address="0.0.0.0")
+    client = app.test_client()
+    assert client.get("/", headers={"Host": "192.0.2.5:5000"}).status_code == 200
+    assert client.get("/", headers={"Host": "198.51.100.10"}).status_code == 200
+
+
+def test_ipv4_wildcard_rejects_dns_names(app_factory):
+    app = app_factory(bind_address="0.0.0.0")
+    client = app.test_client()
+    resp = client.get("/", headers={"Host": "myhost.local"})
+    assert resp.status_code == 400
+
+
+def test_ipv6_wildcard_permits_ipv6_literal_hosts(app_factory):
+    app = app_factory(bind_address="::")
+    client = app.test_client()
+    assert client.get("/", headers={"Host": "[::1]:5000"}).status_code == 200
+    assert client.get("/", headers={"Host": "[2001:db8::1]:5000"}).status_code == 200
+
+
+def test_ipv6_wildcard_rejects_dns_names(app_factory):
+    app = app_factory(bind_address="::")
+    client = app.test_client()
+    resp = client.get("/", headers={"Host": "myhost.local"})
+    assert resp.status_code == 400
+
+
+def test_ipv6_link_local_permitted_on_wildcard(app_factory):
+    app = app_factory(bind_address="::")
+    client = app.test_client()
+    assert client.get("/", headers={"Host": "[fe80::1]:5000"}).status_code == 200
+
+
+def test_ipv6_link_local_rejected_on_loopback(app_factory):
+    app = app_factory(bind_address="::1")
+    client = app.test_client()
+    resp = client.get("/", headers={"Host": "[fe80::1]:5000"})
+    assert resp.status_code == 400
+
+
+def test_configured_trusted_host_adds_to_auto_trust(app_factory):
+    app = app_factory(trusted_hosts="lan-host.local", bind_address="192.0.2.5")
+    trusted = app.config["LLMFLASK_TRUSTED_HOSTS"]
+    assert "lan-host.local" in trusted
+    assert "192.0.2.5" in trusted
+
+
+def test_cli_trusted_hosts_are_normalized_and_merged(app_factory):
+    app = app_factory(
+        trusted_hosts="service.internal",
+        bind_address="192.0.2.5",
+        extra_trusted=frozenset({"LAN-HOST.Local."}),
+    )
+    assert app.config["LLMFLASK_TRUSTED_HOSTS"] >= {
+        "service.internal",
+        "192.0.2.5",
+        "lan-host.local",
+    }
+
+
+def test_invalid_cli_trusted_host_fails_at_startup(app_factory):
+    with pytest.raises(ValueError, match="--trusted-host"):
+        app_factory(extra_trusted=frozenset({"https://lan-host.local"}))
+
+
+def test_loopback_bind_rejects_lan_ip_literal(app_factory):
+    app = app_factory(bind_address="127.0.0.1")
+    client = app.test_client()
+    resp = client.get("/", headers={"Host": "192.0.2.5"})
+    assert resp.status_code == 400
+
+
+def test_rejected_host_response_names_the_rejected_value(app_factory):
+    app = app_factory()
+    client = app.test_client()
+    resp = client.get("/", headers={"Host": "evil.example.test"})
+    assert resp.status_code == 400
+    body = resp.get_json()["error"]
+    assert "evil.example.test" in body
+
+
+def test_rejected_host_suggests_trusted_host_flag(app_factory):
+    app = app_factory(bind_address="127.0.0.1")
+    client = app.test_client()
+    resp = client.get("/", headers={"Host": "mybox.local"})
+    assert resp.status_code == 400
+    body = resp.get_json()["error"].lower()
+    assert "trusted" in body or "trusted-host" in body
+
+    resp2 = client.get("/", headers={"Host": "evil.example.test"})
+    assert resp2.status_code == 400
+    body2 = resp2.get_json()["error"]
+    assert "evil.example.test" in body2

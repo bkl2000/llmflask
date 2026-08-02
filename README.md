@@ -519,24 +519,31 @@ ssh -N -L 60010:127.0.0.1:5000 user@LLMFLASK_SERVER
 The Web GUI is then available at <http://127.0.0.1:60010>. SSH supplies the
 encrypted and authenticated transport that LLMFlask itself does not provide.
 
-For a protected LAN whose clients are all trusted, bind only to the server's
-LAN address and list every hostname or IP address clients will use. Values in
-`LLMFLASK_TRUSTED_HOSTS` are comma-separated:
+For a protected LAN whose clients are all trusted, the simplest command listens
+on all local interfaces. Connect with the server's real IP address, which
+`hostname -I` prints; do not enter `0.0.0.0` in a browser:
 
 ```bash
-LLMFLASK_HOST=192.0.2.20 \
-LLMFLASK_TRUSTED_HOSTS=192.0.2.20,llmflask.internal \
-  ~/bin/llmflask --server production --port 5000
+~/bin/llmflask --server production --listen 0.0.0.0 --port 5000
+hostname -I
+```
 
-# Equivalent command-line bind override:
-LLMFLASK_TRUSTED_HOSTS=192.0.2.20,llmflask.internal \
-  ~/bin/llmflask --server production --host 192.0.2.20 --port 5000
+Bind to one address when preferred. Its exact IP is trusted automatically. Add
+each intentional DNS alias with a repeatable option:
+
+```bash
+~/bin/llmflask --server production --listen 192.0.2.20 --port 5000
+~/bin/llmflask --server production --listen 192.0.2.20 --port 5000 \
+  --trusted-host llmflask.internal
 ```
 
 The trusted-Host check rejects unexpected HTTP `Host` headers; it does not
 authenticate users. Entries are exact hostnames or IP addresses without a URL
-scheme, path, port, or wildcard. Keep firewall access limited to the trusted
-LAN.
+scheme, path, port, or wildcard. A rejection includes the exact restart command
+with `--trusted-host`. `LLMFLASK_HOST` and comma-separated
+`LLMFLASK_TRUSTED_HOSTS` remain advanced service/automation settings; server-side
+`--host` is a temporary compatibility alias for `--listen`. Keep firewall access
+limited to the trusted LAN.
 
 The copied server needs Docker only if it should run the Workbench sandbox. If
 SearXNG also runs elsewhere, set `SEARXNG_URL` on the server. LLMFlask has no

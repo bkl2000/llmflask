@@ -707,17 +707,85 @@ def _verify_server_requirements() -> bool:
 def _handle_server(args: ParsedArgs, host: str, port: int) -> int:
     from .app import create_app
     from .config import HOST, PORT
+
+    if args.listen is not None:
+        bind = args.listen
+    elif args.host is not None:
+        bind = args.host
+    else:
+        bind = HOST
+
+    port = args.port if args.port is not None else PORT
+
+    extra_trusted = frozenset(args.trusted_hosts) if args.trusted_hosts else None
+
+    _check_listen_address(bind, port)
+
     if not _verify_server_requirements():
         return 2
     os.environ["LLMFLASK_USER"] = args.user
-    host = args.host if args.host is not None else HOST
-    port = args.port if args.port is not None else PORT
-    app = create_app()
+
+    try:
+        app = create_app(bind_address=bind, extra_trusted=extra_trusted)
+    except ValueError as error:
+        print(f"llmflask: error: {error}", file=sys.stderr)
+        print(
+            "  Use exact values, for example: --trusted-host llmflask.internal",
+            file=sys.stderr,
+        )
+        return 2
+
     if args.server == "production":
-        run_gunicorn(app, host, port)
+        run_gunicorn(app, bind, port)
     else:
-        app.run(host=host, port=port, debug=False, threaded=True)
+        app.run(host=bind, port=port, debug=False, threaded=True)
     return 0
+
+
+def _check_listen_address(bind: str, port: int) -> None:
+    import socket
+
+    try:
+        addr = socket.getaddrinfo(bind, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        if not addr:
+            raise ValueError(f"cannot resolve {bind}")
+    except (socket.gaierror, ValueError) as exc:
+        print(f"llmflask: error: invalid listen address {bind!r}: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+    try:
+        from ipaddress import ip_address
+
+        resolved_addresses = {
+            ip_address(result[4][0].split("%", 1)[0]) for result in addr
+        }
+        if resolved_addresses and all(ip.is_loopback for ip in resolved_addresses):
+            return
+
+        bind_display = bind
+        if bind in ("0.0.0.0", "::"):
+            try:
+                local_ips = subprocess.check_output(
+                    ["hostname", "-I"],
+                    text=True,
+                    timeout=2,
+                    stderr=subprocess.DEVNULL,
+                ).strip()
+                if local_ips:
+                    bind_display = local_ips.split()[0]
+            except Exception:
+                pass
+
+        print(
+            f"\n  *** No authentication — anyone on the network can access LLMFlask ***\n"
+            f"  Server listening on {bind}:{port}\n"
+            f"  Connect using the server's real IP address (e.g. {bind_display})\n"
+            f"  Discover local IPs: hostname -I\n"
+            f"  SSH tunnel recommended: ssh -L 5000:127.0.0.1:5000 user@server\n\n",
+            file=sys.stderr,
+        )
+    except ValueError:
+        return
 
 
 _MODE_HANDLERS = {

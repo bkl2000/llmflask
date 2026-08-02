@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+from collections.abc import Iterable
 from urllib.parse import urlsplit
 
 from flask import Flask, jsonify, request
@@ -33,25 +34,32 @@ def _normalize_hostname(value: str) -> str:
     return hostname
 
 
-def parse_trusted_hosts(configured: str) -> frozenset[str]:
-    """Return built-in loopback hosts plus validated configured hostnames/IPs."""
-    trusted = set(DEFAULT_TRUSTED_HOSTS)
-    for raw_entry in configured.split(","):
+def _parse_exact_hosts(values: Iterable[str], source: str) -> frozenset[str]:
+    trusted: set[str] = set()
+    for raw_entry in values:
         entry = raw_entry.strip()
         if not entry:
             continue
         if any(marker in entry for marker in ("://", "/", "@", "*")):
             raise ValueError(
-                "LLMFLASK_TRUSTED_HOSTS entries must be exact hostnames or IP addresses "
+                f"{source} entries must be exact hostnames or IP addresses "
                 "without a scheme, path, port, user information, or wildcard"
             )
         try:
             trusted.add(_normalize_hostname(entry))
         except ValueError as error:
             raise ValueError(
-                f"Invalid LLMFLASK_TRUSTED_HOSTS entry {entry!r}: {error}"
+                f"Invalid {source} entry {entry!r}: {error}"
             ) from error
     return frozenset(trusted)
+
+
+def parse_trusted_hosts(configured: str) -> frozenset[str]:
+    """Return built-in loopback hosts plus validated configured hostnames/IPs."""
+    configured_hosts = _parse_exact_hosts(
+        configured.split(","), "LLMFLASK_TRUSTED_HOSTS"
+    )
+    return DEFAULT_TRUSTED_HOSTS | configured_hosts
 
 
 def _parse_authority(authority: str, scheme: str) -> tuple[str, int | None]:
@@ -87,10 +95,43 @@ def _origin_matches_request(origin: str) -> bool:
     return origin_authority == request_authority
 
 
-def install_request_security(app: Flask, configured_hosts: str) -> None:
+def _is_ip_literal(hostname: str) -> bool:
+    try:
+        ipaddress.ip_address(hostname)
+        return True
+    except ValueError:
+        return False
+
+
+def _derive_trusted_from_bind(bind_address: str) -> frozenset[str]:
+    bind = bind_address.strip()
+    if not bind:
+        return frozenset()
+    try:
+        addr = ipaddress.ip_address(bind)
+    except ValueError:
+        return frozenset({_normalize_hostname(bind)})
+    if addr.is_loopback or addr.is_unspecified:
+        return frozenset()
+    return frozenset({addr.compressed})
+
+
+def install_request_security(
+    app: Flask,
+    configured_hosts: str,
+    bind_address: str = "127.0.0.1",
+    extra_trusted: frozenset[str] | None = None,
+) -> None:
     """Install Host, unsafe-method marker, and browser Origin checks."""
     trusted_hosts = parse_trusted_hosts(configured_hosts)
+    auto_trusted = _derive_trusted_from_bind(bind_address)
+    trusted_hosts = trusted_hosts | auto_trusted
+    if extra_trusted:
+        trusted_hosts = trusted_hosts | _parse_exact_hosts(
+            extra_trusted, "--trusted-host"
+        )
     app.config["LLMFLASK_TRUSTED_HOSTS"] = trusted_hosts
+    app.config["LLMFLASK_BIND_ADDRESS"] = bind_address
 
     @app.before_request
     def validate_request_boundary():
@@ -98,12 +139,20 @@ def install_request_security(app: Flask, configured_hosts: str) -> None:
             request_hostname, _port = _parse_authority(request.host, request.scheme)
         except ValueError:
             return jsonify({"error": "Request host is malformed"}), 400
-        if request_hostname not in trusted_hosts:
+
+        allowed = request_hostname in trusted_hosts
+        if not allowed:
+            bind = app.config.get("LLMFLASK_BIND_ADDRESS", "")
+            if bind in ("0.0.0.0", "::"):
+                allowed = _is_ip_literal(request_hostname)
+
+        if not allowed:
+            repair = f"llmflask --server --listen {bind_address} --trusted-host {request_hostname}"
             return jsonify(
                 {
                     "error": (
-                        "Request host is not allowed. Add the exact host to "
-                        "LLMFLASK_TRUSTED_HOSTS before starting the server."
+                        f"Request host {request_hostname!r} is not allowed. "
+                        f"Restart the server with: {repair}"
                     )
                 }
             ), 400
