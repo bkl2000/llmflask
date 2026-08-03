@@ -4,19 +4,34 @@
 > OpenAI and DeepSeek APIs—from a browser, a terminal UI, or a single command.
 
 > [!WARNING]
-> LLMFlask 0.2.0 is intended for trusted local users and protected networks.
+> LLMFlask 0.3.0 is intended for trusted local users and protected networks.
 > It has no authentication, authorization, or tenant isolation. The server
 > listens on loopback by default; keep it local, reach it through an SSH
 > tunnel, or explicitly configure a protected LAN. Do not expose it directly
 > to the internet or to untrusted users. See [Security](SECURITY.md).
 
-Current development version: **0.2.0**. Versions change only for intentional
+Current development version: **0.3.0**. Versions change only for intentional
 releases, not for each pull, commit, or GitHub snapshot.
+
+## What LLMFlask is
+
+LLMFlask is not an inference engine, model runtime, or multi-user AI platform.
+It uses existing services — local Ollama or optional OpenAI and DeepSeek APIs.
+
+Its focus is simple deployment and consistent operation: copy one standalone
+Linux binary to a compatible system and use the same application through a Web
+interface, a terminal UI, or command-line commands. The target system does not
+need Python, a virtual environment, or a source checkout.
+
+Larger platforms provide authentication, team management, RAG systems, and agent
+marketplaces. LLMFlask deliberately stays smaller and easier to understand. It is
+intended for individual users, administrators, and trusted internal environments
+that want a practical interface to existing LLM services without deploying a
+complete AI platform.
 
 ## Why LLMFlask?
 
-LLMFlask does not replace Ollama. `ollama run` is the simplest choice when you
-are sitting at the model computer and want to start a local chat immediately.
+`ollama run` is the simplest choice when you are sitting at the model computer.
 LLMFlask adds a shared Web, terminal, and command-line interface when the model
 runs elsewhere on the network, several clients need access, or local and
 optional external providers should use the same chat workflow.
@@ -693,6 +708,11 @@ make test
 - [First-publication checklist](docs/github-publish.md)
 - [Contributing](CONTRIBUTING.md)
 - [Release history](CHANGELOG.md)
+
+## Contact
+
+- Bugs and feature requests: [GitHub Issues](https://github.com/bkl2000/llmflask/issues)
+- Private and business inquiries: git@isarlab.de
 
 ## License
 

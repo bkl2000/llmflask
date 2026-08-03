@@ -348,7 +348,7 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--version", action="version", version="llmflask 0.2.0",
+        "--version", action="version", version=f"llmflask {_version_string()}",
     )
     parser.add_argument(
         "--tui", action="store_true",
@@ -735,11 +735,83 @@ def _handle_server(args: ParsedArgs, host: str, port: int) -> int:
         )
         return 2
 
+    _print_startup_banner(bind, port)
+
     if args.server == "production":
         run_gunicorn(app, bind, port)
     else:
         app.run(host=bind, port=port, debug=False, threaded=True)
     return 0
+
+
+def _version_string() -> str:
+    try:
+        from importlib.metadata import version
+        return version("llmflask")
+    except Exception:
+        return "0.0.0"
+
+
+def _print_startup_banner(bind: str, port: int) -> None:
+    import socket
+    from ipaddress import ip_address
+
+    try:
+        addrs = socket.getaddrinfo(bind, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        resolved = {ip_address(r[4][0].split("%", 1)[0]) for r in addrs}
+        is_loopback = bool(resolved) and all(ip.is_loopback for ip in resolved)
+    except Exception:
+        is_loopback = True
+
+    ver = _version_string()
+
+    if is_loopback:
+        print(
+            f"\nLLMFlask {ver} — http://{bind}:{port}",
+            file=sys.stderr,
+        )
+        print("  Loopback only. Trusted users only.", file=sys.stderr)
+        print(f"\n  Web UI  → http://{bind}:{port}", file=sys.stderr)
+        print("  TUI     → llmflask --tui", file=sys.stderr)
+        print("  Models  → llmflask --models", file=sys.stderr)
+        print("  LAN     → llmflask --server --listen 0.0.0.0", file=sys.stderr)
+        print("             use --trusted-host for DNS aliases", file=sys.stderr)
+    else:
+        ip_display = bind
+        if bind in ("0.0.0.0", "::"):
+            try:
+                local_ips = subprocess.check_output(
+                    ["hostname", "-I"],
+                    text=True,
+                    timeout=2,
+                    stderr=subprocess.DEVNULL,
+                ).strip()
+                if local_ips:
+                    ip_display = local_ips.split()[0]
+            except Exception:
+                pass
+
+        print(
+            f"\n*** No authentication — anyone on the network can access LLMFlask ***\n",
+            file=sys.stderr,
+        )
+        print(
+            f"LLMFlask {ver} — http://{bind}:{port}",
+            file=sys.stderr,
+        )
+        if ip_display != bind:
+            print(
+                f"Connect using the server's real IP, e.g. {ip_display}",
+                file=sys.stderr,
+            )
+        print(f"\n  Web UI  → http://{ip_display}:{port}", file=sys.stderr)
+        print(f"  TUI     → llmflask --tui --host {ip_display}", file=sys.stderr)
+        print(f"  Models  → llmflask --models --host {ip_display}", file=sys.stderr)
+        print("\n  Trust host → --trusted-host MYHOST", file=sys.stderr)
+        print(f"  SSH tunnel → ssh -L {port}:127.0.0.1:{port} user@server", file=sys.stderr)
+
+    print("\n  Docs     → https://github.com/bkl2000/llmflask", file=sys.stderr)
+    print("  Ctrl+C   → stops the server\n", file=sys.stderr)
 
 
 def _check_listen_address(bind: str, port: int) -> None:
@@ -752,40 +824,6 @@ def _check_listen_address(bind: str, port: int) -> None:
     except (socket.gaierror, ValueError) as exc:
         print(f"llmflask: error: invalid listen address {bind!r}: {exc}", file=sys.stderr)
         sys.exit(2)
-
-    try:
-        from ipaddress import ip_address
-
-        resolved_addresses = {
-            ip_address(result[4][0].split("%", 1)[0]) for result in addr
-        }
-        if resolved_addresses and all(ip.is_loopback for ip in resolved_addresses):
-            return
-
-        bind_display = bind
-        if bind in ("0.0.0.0", "::"):
-            try:
-                local_ips = subprocess.check_output(
-                    ["hostname", "-I"],
-                    text=True,
-                    timeout=2,
-                    stderr=subprocess.DEVNULL,
-                ).strip()
-                if local_ips:
-                    bind_display = local_ips.split()[0]
-            except Exception:
-                pass
-
-        print(
-            f"\n  *** No authentication — anyone on the network can access LLMFlask ***\n"
-            f"  Server listening on {bind}:{port}\n"
-            f"  Connect using the server's real IP address (e.g. {bind_display})\n"
-            f"  Discover local IPs: hostname -I\n"
-            f"  SSH tunnel recommended: ssh -L 5000:127.0.0.1:5000 user@server\n\n",
-            file=sys.stderr,
-        )
-    except ValueError:
-        return
 
 
 _MODE_HANDLERS = {

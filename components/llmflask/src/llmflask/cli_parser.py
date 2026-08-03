@@ -258,7 +258,11 @@ def parse(argv: list[str]) -> ParsedArgs:
         sys.exit(0)
 
     if "--version" in tokens:
-        print("llmflask 0.2.0")
+        try:
+            from importlib.metadata import version as _pkg_version
+            print(f"llmflask {_pkg_version('llmflask')}")
+        except Exception:
+            print("llmflask 0.0.0")
         sys.exit(0)
 
     i = 0

@@ -50,13 +50,8 @@ echo "Checking pandoc..."
 if pandoc_version=$(pandoc --version 2>/dev/null | head -1); then
     echo "  pandoc found: $pandoc_version"
 else
-    echo "  pandoc is optional and used for PDF export."
-    echo "  Running: sudo apt install -y pandoc"
-    if sudo apt install -y pandoc 2>/dev/null; then
-        echo "  pandoc installed"
-    else
-        echo "  WARNING: pandoc not installed (PDF export disabled)"
-    fi
+    echo "  WARNING: pandoc not found (PDF export disabled)"
+    echo "           Install with: sudo apt install pandoc"
 fi
 
 echo "Installiere Abhaengigkeiten..."

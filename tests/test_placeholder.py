@@ -179,8 +179,10 @@ def test_public_version_is_consistent_and_manually_released(project_root):
     assert re.fullmatch(r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)", version)
     assert setup_metadata["project"]["version"] == version
     assert f"LLMFlask {version}" in readme
-    assert f"llmflask {version}" in main_cli
-    assert f"llmflask {version}" in compatibility_cli
+    assert 'importlib.metadata' in main_cli
+    assert 'version("llmflask")' in main_cli
+    assert 'importlib.metadata' in compatibility_cli
+    assert "'llmflask'" in compatibility_cli
     assert "does not automatically change the version" in workflow_words
     assert "Never tag or publish a private-history commit" in workflow_words
 
@@ -416,7 +418,7 @@ def test_make_all_creates_a_minimal_runnable_local_install(project_root):
     all_recipe = makefile.split("all: fix-permissions", 1)[1].split("\ntest:", 1)[0]
 
     assert "$(MAKE) install-ai-minimal" in all_recipe
-    assert "$(MAKE) install-standalone" in all_recipe
+    assert "$(MAKE) standalone" in all_recipe
     assert "$(MAKE) install-tools" in all_recipe
     assert "~/bin/llmflask --models" in all_recipe
     assert "~/bin/llmflask --server production" in all_recipe

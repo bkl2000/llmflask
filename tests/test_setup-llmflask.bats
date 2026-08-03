@@ -30,7 +30,7 @@ load test_helper
     rm -rf "$VENV_DIR"
 }
 
-@test "pandoc fehlt -> sudo apt install" {
+@test "pandoc fehlt -> zeigt Install-Hinweis (kein sudo im Script)" {
     command() {
         case "$2" in
             pandoc) return 1 ;;
@@ -47,7 +47,7 @@ load test_helper
     '
     [ "$status" -eq 0 ]
     [[ "$output" =~ "INSTALL" ]]
-    grep -q "Running: sudo apt install -y pandoc" components/llmflask/setup-venv.sh
+    grep -q "Install with: sudo apt install pandoc" components/llmflask/setup-venv.sh
 }
 
 @test "build und setup hinweise verwenden repo-root pfade" {

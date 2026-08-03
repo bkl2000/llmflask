@@ -2866,7 +2866,7 @@ def test_non_loopback_hostname_prints_startup_warning(monkeypatch, capsys):
         ],
     )
 
-    cli_main._check_listen_address("llmflask.internal", 5000)
+    cli_main._print_startup_banner("llmflask.internal", 5000)
 
     error = capsys.readouterr().err
     assert "No authentication" in error
@@ -2893,7 +2893,7 @@ def test_wildcard_ip_discovery_suppresses_hostname_stderr(monkeypatch):
 
     monkeypatch.setattr(subprocess, "check_output", fake_check_output)
 
-    cli_main._check_listen_address("0.0.0.0", 5000)
+    cli_main._print_startup_banner("0.0.0.0", 5000)
 
     assert calls == [
         (

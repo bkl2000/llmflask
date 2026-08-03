@@ -37,7 +37,7 @@ help:
 all: fix-permissions
 	@echo "make all installs and manages Ollama as a system service and may request sudo."
 	$(MAKE) install-ai-minimal
-	$(MAKE) install-standalone
+	$(MAKE) standalone
 	$(MAKE) install-tools
 	@echo ""
 	@echo "Local installation ready. Ollama is running and LLMFlask is installed."
@@ -46,6 +46,8 @@ all: fix-permissions
 	@echo "  Start server:  ~/bin/llmflask --server production"
 	@echo "  Open browser:  http://localhost:5000"
 	@echo "  Optional keys: ~/bin/llmflask --configure-api-keys"
+	@echo "  Standalone:    components/llmflask/standalone/llmflask-linux-$$(uname -m)/llmflask"
+	@echo "  Install it:    cp components/llmflask/standalone/llmflask-linux-$$(uname -m)/llmflask ~/bin/llmflask"
 	@echo "  Full stack:    make install-server  # requires Docker"
 
 test: fix-permissions
@@ -120,6 +122,7 @@ standalone: fix-permissions llmflask-venv
 install-standalone: standalone
 	mkdir -p "$(HOME)/bin"
 	install -m 0755 "components/llmflask/standalone/llmflask-linux-$$(uname -m)/llmflask" "$(HOME)/bin/llmflask"
+	@echo "Standalone installed to ~/bin/llmflask"
 
 clean:
 	rm -rf components/llmflask/build components/llmflask/dist components/llmflask/standalone

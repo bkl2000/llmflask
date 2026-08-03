@@ -186,8 +186,8 @@ if command -v ollama >/dev/null; then
   echo "Installed: $CURRENT_VER"
 
   LATEST_TAG=$(curl -fsSL https://api.github.com/repos/ollama/ollama/releases/latest 2>/dev/null \
-    | grep -o '"tag_name": "v[0-9.]*"' | grep -o '[0-9.]*' | tail -1)
-  echo "Available: $LATEST_TAG"
+    | grep -o '"tag_name": "v[0-9.]*"' | grep -o '[0-9.]*' | tail -1) || true
+  echo "Available: ${LATEST_TAG:-(could not check)}"
 
   if [ -n "$LATEST_TAG" ] && [ "$CURRENT_VER" != "$LATEST_TAG" ]; then
     echo "Updating from $CURRENT_VER to $LATEST_TAG"
@@ -210,6 +210,7 @@ prepare_ollama_model_path
 echo
 echo "== Start Ollama Service =="
 
+echo "Configuring systemd service (systemctl needs sudo)..."
 sudo systemctl enable ollama >/dev/null
 sudo systemctl restart ollama
 

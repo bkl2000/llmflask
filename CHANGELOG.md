@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0 — 2026-08
+
+Protected LAN user experience:
+
+- `--listen ADDRESS` for server bind, separate from client `--host` (compat alias kept);
+- repeatable `--trusted-host HOST` for LAN DNS aliases without env vars;
+- wildcard bind (`0.0.0.0`/`::`) permits IP-literal Host headers, rejects DNS names;
+- specific non-loopback bind auto-trusts that address;
+- rejected Host headers name the value and provide a `--trusted-host` repair command;
+- informative startup banner with version, commands, and context-sensitive security hints;
+- version string is dynamically read from the package metadata (`importlib.metadata`);
+- `make all` builds but no longer implicitly overwrites `~/bin/llmflask` (use `make install-standalone`).
+
 ## 0.2.0 — 2026-08
 
 Local-first security defaults:
