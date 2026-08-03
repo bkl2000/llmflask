@@ -94,7 +94,7 @@ prepare_ollama_model_path() {
 
   sudo mkdir -p "$active_dir/.ollama/models"
 
-  [ -d "$active_dir/.ollama/models" ] || {
+  sudo [ -d "$active_dir/.ollama/models" ] || {
     echo "ERROR: Ollama model path missing: $active_dir/.ollama/models"
     exit 1
   }
@@ -131,6 +131,16 @@ ensure_ollama_service_models_env() {
 if [ "${LLMFLASK_TEST_FUNCTIONS_ONLY:-}" = "1" ]; then
   return 0 2>/dev/null || exit 0
 fi
+
+_has_sudo() {
+    if (id -nG || true) 2>/dev/null | grep -qE '(^| )(sudo|wheel)( |$)'; then
+        return 0
+    fi
+    if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
 
 echo "== System Check =="
 
@@ -197,6 +207,15 @@ if command -v ollama >/dev/null; then
   fi
 else
   echo "Ollama not found, installing..."
+  if (( EUID != 0 )) && ! _has_sudo; then
+    echo ""
+    echo "ERROR: sudo access is required to install Ollama."
+    echo "  Option 1: Add your user to the sudo group as root, then re-login:"
+    echo "      su -c '/usr/sbin/usermod -aG sudo $USER'"
+    echo "  Option 2: Install Ollama manually as root, then run make all again:"
+    echo "      su -c 'curl -fsSL https://ollama.com/install.sh | sh'"
+    exit 1
+  fi
   curl -fsSL https://ollama.com/install.sh | sh
 fi
 

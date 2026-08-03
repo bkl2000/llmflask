@@ -154,6 +154,16 @@ Ask the administrator to install sudo or run the installation as root:
 EOF
         exit 1
     fi
+    if (( EUID != 0 )) && command -v sudo >/dev/null 2>&1 \
+        && ! ((id -nG || true) 2>/dev/null | grep -qE '(^| )(sudo|wheel)( |$)') \
+        && ! (sudo -n true 2>/dev/null); then
+        cat >&2 <<'EOF'
+Warning: sudo is installed but you do not have sudo access.
+If the installer asks for a sudo password later, you may need to add
+your user to the sudo group as root first, then log out and back in:
+  su -c '/usr/sbin/usermod -aG sudo ${USER:-your-user}'
+EOF
+    fi
     command -v systemctl >/dev/null 2>&1 || fail \
         "systemd is required for the managed Ollama service; systemctl was not found."
 

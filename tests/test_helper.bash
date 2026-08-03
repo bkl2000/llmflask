@@ -136,6 +136,7 @@ setup() {
   }
 
   sudo() {
+    while [ $# -gt 0 ] && [ "${1#-}" != "$1" ]; do shift; done
     "$@"
   }
 
