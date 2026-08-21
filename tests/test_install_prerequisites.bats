@@ -132,3 +132,26 @@ EOF
     [[ "$output" == *"sudo systemctl enable --now docker"* ]]
     [[ "$output" == *"sudo usermod -aG docker"* ]]
 }
+
+@test "full check explains that legacy Compose v1 is insufficient" {
+    docker() {
+        if [ "${1:-}" = "compose" ]; then
+            return 1
+        fi
+        return 0
+    }
+    systemctl() {
+        echo "running"
+    }
+    export -f docker systemctl
+
+    run ./tools/check-install-prerequisites.sh --full
+
+    [ "$status" -ne 0 ]
+    [[ "$output" == *'Error: Docker Compose v2 is required (`docker compose`).'* ]]
+    [[ "$output" == *"sudo apt install docker-compose-v2"* ]]
+    [[ "$output" == *'the package `docker-compose` installs legacy Compose v1'* ]]
+    [[ "$output" == *"docker compose version"* ]]
+    [[ "$output" == *"For Ollama and local models only, Docker is not required"* ]]
+    [[ "$output" == *"./components/local-ai/setup-local-ai.sh"* ]]
+}

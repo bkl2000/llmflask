@@ -177,7 +177,12 @@ already tested.
 An NVIDIA GPU is optional. Without `nvidia-smi`, the model installer uses a
 conservative 8 GB selection; local inference can still run on the CPU, but it
 will usually be slower. With less than 8 GB of GPU memory the installer
-automatically selects small models (`ollama/llama3.2:3b`, `ollama/qwen3:1.7b`).
+automatically selects small models (`ollama/llama3.2:3b`,
+`ollama/qwen3:4b-instruct-2507-q4_K_M`). The pinned Qwen model is the Q4_K_M
+build of Qwen3-4B-Instruct-2507 (about 2.5 GB). At 8 GB the normal Qwen choice
+remains `ollama/qwen3:8b`; a 12 GB card also adds `ollama/qwen3:14b` as the
+capacity-oriented quality option. The optional `qwen3:32b` selection requires
+at least 24 GB for full-GPU use.
 
 Clone the public GitHub repository:
 

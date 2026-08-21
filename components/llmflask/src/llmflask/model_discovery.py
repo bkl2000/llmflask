@@ -13,6 +13,7 @@ _VRAM_TIERS = (
     (5.0, "4 GB"),
     (10.0, "8 GB"),
     (20.0, "12 GB"),
+    (30.0, "16+ GB"),
 )
 
 
@@ -46,7 +47,7 @@ def _vram_fit(model: dict) -> str:
     for limit, label in _VRAM_TIERS:
         if params < limit:
             return label
-    return "16+ GB"
+    return "24+ GB"
 
 
 def _base_url(host: str, port: int) -> str:

@@ -19,7 +19,7 @@ help:
 	@echo ""
 	@echo "  For server:"
 	@echo "  make install-server  AI stack + sandbox image + LLMFlask venv (needs Docker)"
-	@echo "  make install-ai      AI stack + sandbox image only (no LLMFlask venv)"
+	@echo "  make install-ai      Full AI stack (Docker for SearXNG/sandbox, not Ollama)"
 	@echo "  make install-ai-minimal  Ollama + llama3.2:3b only (quick test, no SearXNG/OpenCode/sandbox)"
 	@echo ""
 	@echo "  For client:"

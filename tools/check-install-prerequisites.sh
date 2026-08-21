@@ -198,9 +198,19 @@ EOF
     fi
     if ! docker compose version >/dev/null 2>&1; then
         cat >&2 <<'EOF'
-Error: the Docker Compose plugin is missing. Install it using the official
-Docker instructions, then verify:
-  docker compose version
+Error: Docker Compose v2 is required (`docker compose`).
+
+Ubuntu 24.04:
+    sudo apt install docker-compose-v2
+
+Note: the package `docker-compose` installs legacy Compose v1
+and does not satisfy this requirement.
+
+Verify:
+    docker compose version
+
+For Ollama and local models only, Docker is not required:
+    ./components/local-ai/setup-local-ai.sh
 EOF
         exit 1
     fi

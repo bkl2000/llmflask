@@ -298,7 +298,7 @@ load test_helper
   run bash -c '
     VRAM_GB=4
     if [ "$VRAM_GB" -lt 8 ]; then
-      MODELS=("llama3.2:3b" "qwen3:1.7b")
+      MODELS=("llama3.2:3b" "qwen3:4b-instruct-2507-q4_K_M")
     else
       MODELS=("llama3.1:8b" "qwen3:8b")
       if [ "$VRAM_GB" -ge 11 ]; then
@@ -308,16 +308,30 @@ load test_helper
     echo "Modelle: ${MODELS[*]}"
     echo "Anzahl: ${#MODELS[@]}"
     [[ "${MODELS[*]}" =~ "llama3.2:3b" ]]
+    [[ "${MODELS[*]}" =~ "qwen3:4b-instruct-2507-q4_K_M" ]]
   '
   [ "$status" -eq 0 ]
   [[ "$output" =~ "Anzahl: 2" ]]
+}
+
+@test "Installer pins current Qwen tiers and full-GPU 32B threshold" {
+  run bash -c '
+    script=components/local-ai/setup-local-ai.sh
+    grep -qF "qwen3:4b-instruct-2507-q4_K_M" "$script"
+    grep -qF "qwen3:8b" "$script"
+    grep -qF "qwen3:14b" "$script"
+    grep -qF "MODEL_32B_MIN_VRAM_GB=23" "$script"
+    ! grep -qF "qwen3:1.7b" "$script"
+    ! grep -qF "qwen3:latest" "$script"
+  '
+  [ "$status" -eq 0 ]
 }
 
 @test "VRAM 8 GB -> nur Basis-Modelle" {
   run bash -c '
     VRAM_GB=8
     MODELS=("llama3.1:8b" "qwen3:8b")
-    if [ "$VRAM_GB" -ge 12 ]; then
+    if [ "$VRAM_GB" -ge 11 ]; then
       MODELS+=("qwen3:14b")
     fi
     echo "Modelle: ${MODELS[*]}"
@@ -342,15 +356,16 @@ load test_helper
   [[ "$output" =~ "Anzahl: 3" ]]
 }
 
-@test "INSTALL_32B=yes + 11 GB -> + 32b" {
+@test "INSTALL_32B=yes + 23 GiB detected -> + 32b" {
   run bash -c '
     INSTALL_32B=yes
-    VRAM_GB=11
+    MODEL_32B_MIN_VRAM_GB=23
+    VRAM_GB=23
     MODELS=("llama3.1:8b" "qwen3:8b")
     if [ "$VRAM_GB" -ge 11 ]; then
       MODELS+=("qwen3:14b")
     fi
-    if [ "$INSTALL_32B" = "yes" ] && [ "$VRAM_GB" -ge 11 ]; then
+    if [ "$INSTALL_32B" = "yes" ] && [ "$VRAM_GB" -ge "$MODEL_32B_MIN_VRAM_GB" ]; then
       MODELS+=("qwen3:32b")
     fi
     echo "Modelle: ${MODELS[*]}"
@@ -360,22 +375,24 @@ load test_helper
   [[ "$output" =~ "Anzahl: 4" ]]
 }
 
-@test "INSTALL_32B=yes + 8 GB -> kein 32b" {
+@test "INSTALL_32B=yes + 16 GB -> kein 32b" {
   run bash -c '
     INSTALL_32B=yes
-    VRAM_GB=8
+    MODEL_32B_MIN_VRAM_GB=23
+    VRAM_GB=16
     MODELS=("llama3.1:8b" "qwen3:8b")
-    if [ "$VRAM_GB" -ge 12 ]; then
+    if [ "$VRAM_GB" -ge 11 ]; then
       MODELS+=("qwen3:14b")
     fi
-    if [ "$INSTALL_32B" = "yes" ] && [ "$VRAM_GB" -ge 11 ]; then
+    if [ "$INSTALL_32B" = "yes" ] && [ "$VRAM_GB" -ge "$MODEL_32B_MIN_VRAM_GB" ]; then
       MODELS+=("qwen3:32b")
     fi
     echo "Modelle: ${MODELS[*]}"
     echo "Anzahl: ${#MODELS[@]}"
+    [[ ! "${MODELS[*]}" =~ "qwen3:32b" ]]
   '
   [ "$status" -eq 0 ]
-  [[ "$output" =~ "Anzahl: 2" ]]
+  [[ "$output" =~ "Anzahl: 3" ]]
 }
 
 @test "MODELS via Env (String) wird in Array umgewandelt" {

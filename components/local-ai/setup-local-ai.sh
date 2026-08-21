@@ -26,11 +26,11 @@ Usage: setup-local-ai.sh [--help]
 
 Install/update Ollama and local models:
   - Ollama
-  - matching Ollama models (< 8 GB VRAM: llama3.2:3b + qwen3:1.7b)
+  - matching Ollama models (< 8 GB VRAM: llama3.2:3b + Qwen3 4B Instruct 2507)
 
 Environment:
   MODELS="qwen3:14b llama3.1:8b"  explicit model list
-  INSTALL_32B=yes                  install qwen3:32b if enough VRAM
+  INSTALL_32B=yes                  install qwen3:32b on a nominal 24 GB GPU
 
 Full stack:
   make install-ai
@@ -48,6 +48,7 @@ if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
 fi
 
 INSTALL_32B="${INSTALL_32B:-no}"
+MODEL_32B_MIN_VRAM_GB=23
 
 OLLAMA_LINK_DIR="${OLLAMA_LINK_DIR:-/usr/share/ollama}"
 OLLAMA_REAL_DIR="${OLLAMA_REAL_DIR:-$OLLAMA_LINK_DIR}"
@@ -165,7 +166,7 @@ if [ -z "${MODELS+x}" ]; then
   if [ "$VRAM_GB" -lt 8 ]; then
     MODELS=(
       "llama3.2:3b"
-      "qwen3:1.7b"
+      "qwen3:4b-instruct-2507-q4_K_M"
     )
   else
     MODELS=(
@@ -177,7 +178,7 @@ if [ -z "${MODELS+x}" ]; then
       MODELS+=("qwen3:14b")
     fi
 
-    if [ "$INSTALL_32B" = "yes" ] && [ "$VRAM_GB" -ge 11 ]; then
+    if [ "$INSTALL_32B" = "yes" ] && [ "$VRAM_GB" -ge "$MODEL_32B_MIN_VRAM_GB" ]; then
       MODELS+=("qwen3:32b")
     fi
   fi
@@ -300,7 +301,7 @@ Specify models manually:
 
     MODELS="qwen3:14b llama3.1:8b" make install-ai
 
-With 32B (>= 11 GB VRAM):
+With 32B (nominal 24 GB VRAM for full-GPU use):
 
     INSTALL_32B=yes make install-ai
 
@@ -308,10 +309,10 @@ Check for new model versions:
   https://ollama.com/search
 
 VRAM recommendations:
-- 4 GB:  llama3.2:3b + qwen3:1.7b, context 2048 for speed
+- 4 GB:  llama3.2:3b + qwen3:4b-instruct-2507-q4_K_M (~2.5 GB), context 2048 for speed
 - 8 GB:  llama3.1:8b + qwen3:8b, context 4096 for speed
 - 12 GB: 8B with context 8192; qwen3:14b as quality test
-- 16+ GB: qwen3:32b opt-in test
+- 24+ GB: qwen3:32b opt-in test
 
 Performance:
 - CPU shares in "ollama ps" indicate offloading; reduce context/model.
