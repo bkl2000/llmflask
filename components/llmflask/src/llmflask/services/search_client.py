@@ -23,7 +23,12 @@ def format_results(results: list[dict]) -> str:
     if not results:
         return ""
     today = datetime.now().strftime("%Y-%m-%d")
-    lines = [f"\n## Web Search Results ({today})\n"]
+    lines = [
+        f"\nCurrent date: {today}.\n"
+        "The following web search results are current.\n"
+        "For current facts, prefer these search results over training knowledge.\n"
+        "\n## Web Search Results\n"
+    ]
     for i, r in enumerate(results, 1):
         title = r.get("title", "No title")
         snippet = r.get("content", "") or r.get("snippet", "")

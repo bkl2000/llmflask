@@ -360,6 +360,60 @@ def test_chat_post_checks_user_ownership(client):
     assert resp.status_code == 404
 
 
+def test_chat_search_appends_grounded_current_results(client, monkeypatch):
+    from datetime import datetime
+    from llmflask.services import search_client
+
+    captured = {}
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 8, 21)
+
+    def fake_chat_stream(history, model):
+        captured["history"] = history
+        captured["model"] = model
+        yield "ok"
+
+    monkeypatch.setattr(search_client, "datetime", FixedDatetime)
+    monkeypatch.setattr(
+        "llmflask.routes.chat.search",
+        lambda query: [{
+            "title": "Weather",
+            "content": "25 C",
+            "url": "https://example.test",
+        }],
+    )
+    monkeypatch.setattr("llmflask.routes.chat.chat_stream", fake_chat_stream)
+
+    session = client.post(
+        "/api/sessions",
+        json={"title": "Search", "model": "ollama/qwen3:4b"},
+    ).get_json()
+    response = client.post(
+        "/api/chat",
+        json={
+            "session_id": session["id"],
+            "message": "Weather today?",
+            "model": "ollama/qwen3:4b",
+            "search": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["model"] == "ollama/qwen3:4b"
+    assert len(captured["history"]) == 1
+    message = captured["history"][0]
+    assert message["role"] == "user"
+    assert message["content"].startswith(
+        "Weather today?\n\nCurrent date: 2026-08-21.\n"
+        "The following web search results are current.\n"
+    )
+    assert "prefer these search results over training knowledge" in message["content"]
+    assert "https://example.test" in message["content"]
+
+
 def test_chat_limits_history_for_ollama(client, monkeypatch):
     from llmflask import database
 

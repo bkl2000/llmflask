@@ -469,7 +469,14 @@ def draw(stdscr, state):
     mdl = _current_model_label(state) or "---"
     search_label = "ON" if state.search_enabled else "OFF"
     status_label = "STREAMING..." if state.streaming else ""
-    stdscr.addstr(sep_y + 1, 1, f"M: {mdl}  S: {search_label}"[:sidebar_w - 3])
+    line_width = sidebar_w - 3
+    search_status = f"  S: {search_label}"
+    model_width = max(0, line_width - len("M: ") - len(search_status))
+    stdscr.addstr(
+        sep_y + 1,
+        1,
+        f"M: {mdl[:model_width]}{search_status}"[:line_width],
+    )
     if status_label:
         stdscr.addstr(sep_y + 2, 1, status_label[:sidebar_w - 3], curses.A_BOLD)
     else:

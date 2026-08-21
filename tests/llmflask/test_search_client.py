@@ -64,20 +64,31 @@ def test_format_results():
         {"title": "Result 2", "content": "Snippet 2", "url": "http://2.com"},
     ]
     formatted = format_results(results)
-    assert "## Web Search Results (" in formatted
+    assert "## Web Search Results\n" in formatted
     assert "Result 1" in formatted
     assert "Snippet 1" in formatted
     assert "http://1.com" in formatted
 
 
-def test_format_results_includes_date():
-    from llmflask.services.search_client import format_results
+def test_format_results_identifies_current_date_and_current_results(monkeypatch):
     from datetime import datetime
+    from llmflask.services import search_client
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 8, 21)
+
+    monkeypatch.setattr(search_client, "datetime", FixedDatetime)
 
     results = [{"title": "T", "content": "S", "url": "http://x.com"}]
-    formatted = format_results(results)
-    today = datetime.now().strftime("%Y-%m-%d")
-    assert f"## Web Search Results ({today})" in formatted
+    formatted = search_client.format_results(results)
+
+    assert "Current date: 2026-08-21." in formatted
+    assert "The following web search results are current." in formatted
+    assert "prefer these search results over training knowledge" in formatted
+    assert "## Web Search Results\n" in formatted
+    assert "## Web Search Results (2026-08-21)" not in formatted
 
 
 def test_format_results_empty():

@@ -99,6 +99,49 @@ def test_chat_stream_routes_legacy_model_to_ollama(monkeypatch):
     assert seen["model"] == "llama3"
 
 
+def test_ollama_chat_stream_forwards_messages_and_context_option(monkeypatch):
+    import httpx
+    from llmflask.services import model_providers
+
+    captured = {}
+
+    class MockResponse:
+        def raise_for_status(self):
+            pass
+
+        def iter_lines(self):
+            return iter([
+                json.dumps({"message": {"content": "ok"}}),
+                json.dumps({"done": True}),
+            ])
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    def mock_stream(method, url, **kwargs):
+        captured.update({"method": method, "url": url, **kwargs})
+        return MockResponse()
+
+    monkeypatch.setattr(httpx, "stream", mock_stream)
+    messages = [{"role": "user", "content": "question\n\nsearch context"}]
+
+    assert list(model_providers.ollama_chat_stream(messages, "qwen3:4b")) == ["ok"]
+    assert captured == {
+        "method": "POST",
+        "url": f"{model_providers.OLLAMA_URL}/api/chat",
+        "json": {
+            "model": "qwen3:4b",
+            "messages": messages,
+            "stream": True,
+            "options": {"num_ctx": model_providers.NUM_CTX},
+        },
+        "timeout": 300,
+    }
+
+
 def test_openai_compatible_chat_stream_yields_sse_tokens(monkeypatch):
     import httpx
     from llmflask.services import model_providers

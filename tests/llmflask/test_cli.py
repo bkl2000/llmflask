@@ -983,6 +983,53 @@ def test_tui_state_creation():
     assert s.models == []
 
 
+def test_draw_keeps_search_status_visible_with_long_model(monkeypatch):
+    from llmflask import cli
+    from llmflask.cli import TuiState
+
+    monkeypatch.setattr(cli.curses, "ACS_VLINE", 0, raising=False)
+    monkeypatch.setattr(cli.curses, "ACS_HLINE", 0, raising=False)
+    monkeypatch.setattr(cli.curses, "A_NORMAL", 0, raising=False)
+    monkeypatch.setattr(cli.curses, "A_BOLD", 0, raising=False)
+    monkeypatch.setattr(cli.curses, "A_REVERSE", 0, raising=False)
+
+    state = TuiState("x", 1, "testuser")
+    state.current_model = "ollama/qwen3:4b-instruct-2507-q4_K_M"
+    state.search_enabled = True
+
+    class MockScreen:
+        def __init__(self):
+            self.status_line = ""
+
+        def getmaxyx(self):
+            return (10, 80)
+
+        def erase(self):
+            pass
+
+        def refresh(self):
+            pass
+
+        def addch(self, *args):
+            pass
+
+        def addstr(self, *args):
+            if args[0:2] == (4, 1):
+                self.status_line = args[2]
+
+        def hline(self, *args):
+            pass
+
+        def move(self, *args):
+            pass
+
+    screen = MockScreen()
+    cli.draw(screen, state)
+
+    assert screen.status_line.endswith("  S: ON")
+    assert len(screen.status_line) <= 21
+
+
 def test_user_query_encodes_spaces():
     from llmflask.cli import TuiState, _user_query
 
