@@ -48,6 +48,7 @@ if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
 fi
 
 INSTALL_32B="${INSTALL_32B:-no}"
+MODEL_GEMMA4_12B_MIN_VRAM_GB=11
 MODEL_32B_MIN_VRAM_GB=23
 
 OLLAMA_LINK_DIR="${OLLAMA_LINK_DIR:-/usr/share/ollama}"
@@ -176,6 +177,10 @@ if [ -z "${MODELS+x}" ]; then
 
     if [ "$VRAM_GB" -ge 11 ]; then
       MODELS+=("qwen3:14b")
+    fi
+
+    if [ "$VRAM_GB" -ge "$MODEL_GEMMA4_12B_MIN_VRAM_GB" ]; then
+      MODELS+=("gemma4:12b")
     fi
 
     if [ "$INSTALL_32B" = "yes" ] && [ "$VRAM_GB" -ge "$MODEL_32B_MIN_VRAM_GB" ]; then
@@ -311,7 +316,7 @@ Check for new model versions:
 VRAM recommendations:
 - 4 GB:  llama3.2:3b + qwen3:4b-instruct-2507-q4_K_M (~2.5 GB), context 2048 for speed
 - 8 GB:  llama3.1:8b + qwen3:8b, context 4096 for speed
-- 12 GB: 8B with context 8192; qwen3:14b as quality test
+- 12 GB: 8B with context 8192; qwen3:14b + gemma4:12b as quality tests
 - 24+ GB: qwen3:32b opt-in test
 
 Performance:

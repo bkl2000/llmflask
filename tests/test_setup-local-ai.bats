@@ -304,6 +304,9 @@ load test_helper
       if [ "$VRAM_GB" -ge 11 ]; then
         MODELS+=("qwen3:14b")
       fi
+      if [ "$VRAM_GB" -ge 11 ]; then
+        MODELS+=("gemma4:12b")
+      fi
     fi
     echo "Modelle: ${MODELS[*]}"
     echo "Anzahl: ${#MODELS[@]}"
@@ -314,15 +317,50 @@ load test_helper
   [[ "$output" =~ "Anzahl: 2" ]]
 }
 
-@test "Installer pins current Qwen tiers and full-GPU 32B threshold" {
+@test "Installer pins current model tiers and full-GPU 32B threshold" {
   run bash -c '
     script=components/local-ai/setup-local-ai.sh
     grep -qF "qwen3:4b-instruct-2507-q4_K_M" "$script"
     grep -qF "qwen3:8b" "$script"
     grep -qF "qwen3:14b" "$script"
+    grep -qF "gemma4:12b" "$script"
+    grep -qF "MODEL_GEMMA4_12B_MIN_VRAM_GB=11" "$script"
     grep -qF "MODEL_32B_MIN_VRAM_GB=23" "$script"
     ! grep -qF "qwen3:1.7b" "$script"
     ! grep -qF "qwen3:latest" "$script"
+  '
+  [ "$status" -eq 0 ]
+}
+
+@test "Automatische Modellauswahl deckt 8 GB, 12 GB, 24 GB und Override ab" {
+  run bash -c '
+    script=components/local-ai/setup-local-ai.sh
+    selection=$(sed -n '\''/^if \[ -z "${MODELS+x}" \]; then$/,/^echo "Models:/p'\'' "$script" | sed '\''$d'\'')
+    MODEL_GEMMA4_12B_MIN_VRAM_GB=11
+    MODEL_32B_MIN_VRAM_GB=23
+    INSTALL_32B=no
+
+    unset MODELS
+    VRAM_GB=8
+    eval "$selection"
+    [ "${MODELS[*]}" = "llama3.1:8b qwen3:8b" ]
+
+    unset MODELS
+    VRAM_MB=12282
+    VRAM_GB=$((VRAM_MB / 1024))
+    eval "$selection"
+    [ "$VRAM_GB" -eq 11 ]
+    [ "${MODELS[*]}" = "llama3.1:8b qwen3:8b qwen3:14b gemma4:12b" ]
+
+    unset MODELS
+    VRAM_GB=24
+    eval "$selection"
+    [ "${MODELS[*]}" = "llama3.1:8b qwen3:8b qwen3:14b gemma4:12b" ]
+
+    MODELS="override:first override:second"
+    VRAM_GB=24
+    eval "$selection"
+    [ "${MODELS[*]}" = "override:first override:second" ]
   '
   [ "$status" -eq 0 ]
 }
@@ -334,6 +372,9 @@ load test_helper
     if [ "$VRAM_GB" -ge 11 ]; then
       MODELS+=("qwen3:14b")
     fi
+    if [ "$VRAM_GB" -ge 11 ]; then
+      MODELS+=("gemma4:12b")
+    fi
     echo "Modelle: ${MODELS[*]}"
     echo "Anzahl: ${#MODELS[@]}"
   '
@@ -341,19 +382,25 @@ load test_helper
   [[ "$output" =~ "Anzahl: 2" ]]
 }
 
-@test "VRAM 11 GB -> + 14b Modell" {
+@test "Typische 12-GB-GPU wird trotz MiB-Rundung als Gemma-12B-Klasse erkannt" {
   run bash -c '
-    VRAM_GB=11
+    VRAM_MB=12282
+    VRAM_GB=$((VRAM_MB / 1024))
     MODELS=("llama3.1:8b" "qwen3:8b")
     if [ "$VRAM_GB" -ge 11 ]; then
       MODELS+=("qwen3:14b")
     fi
+    if [ "$VRAM_GB" -ge 11 ]; then
+      MODELS+=("gemma4:12b")
+    fi
     echo "Modelle: ${MODELS[*]}"
     echo "Anzahl: ${#MODELS[@]}"
-    [[ "${MODELS[*]}" =~ "14b" ]]
+    [ "$VRAM_GB" -eq 11 ]
+    [[ "${MODELS[*]}" =~ "qwen3:14b" ]]
+    [[ "${MODELS[*]}" =~ "gemma4:12b" ]]
   '
   [ "$status" -eq 0 ]
-  [[ "$output" =~ "Anzahl: 3" ]]
+  [[ "$output" =~ "Anzahl: 4" ]]
 }
 
 @test "INSTALL_32B=yes + 23 GiB detected -> + 32b" {
@@ -365,6 +412,9 @@ load test_helper
     if [ "$VRAM_GB" -ge 11 ]; then
       MODELS+=("qwen3:14b")
     fi
+    if [ "$VRAM_GB" -ge 11 ]; then
+      MODELS+=("gemma4:12b")
+    fi
     if [ "$INSTALL_32B" = "yes" ] && [ "$VRAM_GB" -ge "$MODEL_32B_MIN_VRAM_GB" ]; then
       MODELS+=("qwen3:32b")
     fi
@@ -372,7 +422,7 @@ load test_helper
     echo "Anzahl: ${#MODELS[@]}"
   '
   [ "$status" -eq 0 ]
-  [[ "$output" =~ "Anzahl: 4" ]]
+  [[ "$output" =~ "Anzahl: 5" ]]
 }
 
 @test "INSTALL_32B=yes + 16 GB -> kein 32b" {
@@ -384,6 +434,9 @@ load test_helper
     if [ "$VRAM_GB" -ge 11 ]; then
       MODELS+=("qwen3:14b")
     fi
+    if [ "$VRAM_GB" -ge 11 ]; then
+      MODELS+=("gemma4:12b")
+    fi
     if [ "$INSTALL_32B" = "yes" ] && [ "$VRAM_GB" -ge "$MODEL_32B_MIN_VRAM_GB" ]; then
       MODELS+=("qwen3:32b")
     fi
@@ -392,7 +445,7 @@ load test_helper
     [[ ! "${MODELS[*]}" =~ "qwen3:32b" ]]
   '
   [ "$status" -eq 0 ]
-  [[ "$output" =~ "Anzahl: 3" ]]
+  [[ "$output" =~ "Anzahl: 4" ]]
 }
 
 @test "MODELS via Env (String) wird in Array umgewandelt" {
@@ -407,6 +460,7 @@ load test_helper
   [[ "$output" =~ "Anzahl: 3" ]]
   [[ "$output" =~ "llama3.1:8b" ]]
   [[ "$output" =~ "qwen3:14b" ]]
+  [[ ! "$output" =~ "gemma4:12b" ]]
 }
 
 @test "User not in ollama group -> usermod called" {
