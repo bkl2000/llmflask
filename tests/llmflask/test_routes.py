@@ -572,7 +572,7 @@ def test_models_discovers_ollama_and_remote_together(client, monkeypatch, caplog
     monkeypatch.setattr(model_providers, "OLLAMA_URL", endpoint)
     monkeypatch.setattr(model_providers, "REMOTE_PROVIDERS", model_providers._FALLBACK_PROVIDERS)
     monkeypatch.setattr(model_providers, "load_api_keys", lambda: {
-        "OPENAI_API_KEY": "test-openai", "DEEPSEEK_API_KEY": "test-deepseek",
+        "OPENAI_API_KEY": "test-openai", "DEEPSEEK_API_KEY": "test-deepseek", "ZEN_API_KEY": "test-zen",
     })
     calls = []
     tags = ["gemma4:12b", "qwen3:14b", "llama3.1:8b", "example:cloud"]
@@ -622,3 +622,59 @@ def test_models_discovers_ollama_and_remote_together(client, monkeypatch, caplog
 
     ollama_status = "available"
     assert client.get("/api/models").get_json()[0]["name"] == "ollama/gemma4:12b"
+
+
+@pytest.mark.parametrize("keys", [{}, {"ZEN_API_KEY": "test-zen"}, {
+    "OPENAI_API_KEY": "test-openai", "DEEPSEEK_API_KEY": "test-deepseek", "ZEN_API_KEY": "test-zen",
+}])
+def test_web_tui_cli_share_available_models(client, monkeypatch, capsys, keys):
+    import sys
+    import httpx
+    from llmflask import cli, __main__ as main
+    from llmflask.services import model_providers as providers
+
+    monkeypatch.setattr(providers, "REMOTE_PROVIDERS", providers._FALLBACK_PROVIDERS)
+    monkeypatch.setattr(providers, "load_api_keys", lambda: keys)
+    monkeypatch.setattr("llmflask.model_discovery.load_api_keys", lambda: keys)
+    monkeypatch.setattr(cli, "load_api_keys", lambda: keys)
+    local = ["ollama/llama3.2:3b", "ollama/qwen3:8b", "ollama/example:cloud"]
+    expected = local + [f"{p.name}/example-free" for p in providers.REMOTE_PROVIDERS.values() if keys.get(p.api_key_name)]
+
+    def mock_get(url, **kwargs):
+        if url.endswith("/api/tags"):
+            data = {"models": [{"name": ref.split("/", 1)[1]} for ref in local]}
+        else:
+            provider = next(p for p in providers.REMOTE_PROVIDERS.values() if url == f"{p.base_url}/models")
+            assert keys.get(provider.api_key_name), "Unconfigured providers must not be queried"
+            assert kwargs["headers"]["Authorization"] == f"Bearer {keys[provider.api_key_name]}"
+            data = {"data": [{"id": "example-free"}, {"id": "example-free"}]}
+        return httpx.Response(200, json=data, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx, "get", mock_get)
+    models = client.get("/api/models").get_json()
+    assert [m["name"] for m in models] == expected
+    monkeypatch.setattr(cli, "_api_get", lambda url, *args: client.get("/api/models").get_json())
+    state = cli.TuiState("127.0.0.1", 5000, "alice", "server")
+    cli._load_models(state)
+    assert state.models == models
+    assert state.current_model == local[0]
+
+    for provider, refs, code in [(None, expected, 0), ("ollama", local, 0),
+                                 ("zen", ["zen/example-free"] if keys.get("ZEN_API_KEY") else [],
+                                  0 if keys.get("ZEN_API_KEY") else 1)]:
+        argv = ["llmflask", "--models"] + (["--provider", provider] if provider else [])
+        monkeypatch.setattr(sys, "argv", argv)
+        assert main.main() == code
+        output = capsys.readouterr()
+        if code:
+            assert "ZEN_API_KEY is not configured" in output.err
+            assert not output.out
+        else:
+            assert output.out.splitlines()[0] == "MODELREF\tPROVIDER\tLABEL\tSIZE\tVRAM"
+            assert [line.split("\t")[0] for line in output.out.splitlines()[1:]] == refs
+
+    direct = cli.TuiState("127.0.0.1", 5000, "alice", "zen")
+    cli._load_models(direct)
+    assert [m["name"] for m in direct.models] == (["zen/example-free"] if keys.get("ZEN_API_KEY") else [])
+    if not keys.get("ZEN_API_KEY"):
+        assert "API key is not set" in direct.error

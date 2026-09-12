@@ -2,6 +2,8 @@
 # Copyright (c) 2024-2026 LLMFlask contributors
 import json
 
+import pytest
+
 
 def test_ollama_reachable_true_when_api_responds(monkeypatch):
     import httpx
@@ -301,7 +303,7 @@ def test_zen_provider_models_listed_with_key(monkeypatch):
     assert zen_models[1]["name"] == "zen/mimo-v2.5-free"
 
 
-def test_zen_models_listed_without_key(monkeypatch):
+def test_zen_models_hidden_without_key(monkeypatch):
     import httpx
     from llmflask.services import model_providers
 
@@ -311,33 +313,22 @@ def test_zen_models_listed_without_key(monkeypatch):
         lambda: {},
     )
 
-    class MockResponse:
-        def raise_for_status(self):
-            pass
-        def json(self):
-            return {"data": [{"id": "big-pickle"}]}
-
     def mock_get(url, **kwargs):
-        if url.endswith("/api/tags"):
-            return MockResponse()
-        if url == "https://opencode.ai/zen/v1/models":
-            return MockResponse()
-        return MockResponse()
+        assert url.endswith("/api/tags"), "Authenticated providers must not be queried"
+        return httpx.Response(200, json={"models": []}, request=httpx.Request("GET", url))
 
     monkeypatch.setattr(httpx, "get", mock_get)
-
-    models = model_providers.list_models()
-    zen_models = [m for m in models if m["provider"] == "zen"]
-    assert len(zen_models) == 1
-    assert zen_models[0]["name"] == "zen/big-pickle"
+    assert model_providers.list_models() == []
+    assert model_providers.list_remote_models(model_providers.REMOTE_PROVIDERS["zen"], "") == []
 
 
-def test_zen_requires_auth_is_false():
+def test_zen_requires_auth_in_bundled_catalog_and_fallback():
     from llmflask.services import model_providers
 
-    provider = model_providers.REMOTE_PROVIDERS["zen"]
-    assert provider.requires_auth is False
-    assert provider.api_key_name == "ZEN_API_KEY"
+    for providers in (model_providers._parse_providers_json(model_providers._default_providers_path()),
+                      model_providers._FALLBACK_PROVIDERS):
+        assert providers["zen"].requires_auth is True
+        assert providers["zen"].api_key_name == "ZEN_API_KEY"
 
 
 def test_openai_requires_auth_still_true():
@@ -358,11 +349,11 @@ def test_remote_headers_omits_auth_without_key():
     assert headers_with_key["Authorization"] == "Bearer secret"
 
 
-def test_zen_chat_stream_works_without_key(monkeypatch):
+def test_zen_chat_stream_uses_bearer_key(monkeypatch):
     import httpx
     from llmflask.services import model_providers
 
-    monkeypatch.setattr(model_providers, "load_api_keys", lambda: {})
+    monkeypatch.setattr(model_providers, "load_api_keys", lambda: {"ZEN_API_KEY": "test-zen"})
 
     lines = [
         "data: " + json.dumps({"choices": [{"delta": {"content": "Hello"}}]}),
@@ -379,7 +370,12 @@ def test_zen_chat_stream_works_without_key(monkeypatch):
         def __exit__(self, *args):
             pass
 
-    monkeypatch.setattr(httpx, "stream", lambda *a, **k: MockResponse())
+    def mock_stream(method, url, **kwargs):
+        assert kwargs["headers"]["Authorization"] == "Bearer test-zen"
+        assert url == "https://opencode.ai/zen/v1/chat/completions"
+        return MockResponse()
+
+    monkeypatch.setattr(httpx, "stream", mock_stream)
 
     tokens = list(model_providers.chat_stream(
         [{"role": "user", "content": "hi"}], "zen/big-pickle"
@@ -427,3 +423,43 @@ def test_cloud_model_uses_local_ollama_chat_endpoint(monkeypatch):
     assert captured["url"] == "http://ollama.test:11434/api/chat"
     assert captured["json"]["model"] == "example:cloud"
     assert model_providers.provider_for_model("ollama/example:cloud") == "ollama"
+
+
+def test_model_groups_preserve_order_and_remote_duplicates_are_removed(monkeypatch):
+    import httpx
+    from llmflask.services import model_providers as providers
+
+    monkeypatch.setattr(providers, "load_api_keys", lambda: {"OPENAI_API_KEY": "test-key"})
+    # Synthetic provider exercises the existing configurable keyless contract;
+    # it is not a new production endpoint or a free-service recommendation.
+    keyless = providers.Provider("keyless", "Keyless", "https://keyless.test", "", requires_auth=False)
+    monkeypatch.setattr(providers, "REMOTE_PROVIDERS", {
+        "openai": providers._FALLBACK_PROVIDERS["openai"], "keyless": keyless,
+        "zen": providers._FALLBACK_PROVIDERS["zen"],
+    })
+
+    def mock_get(url, **kwargs):
+        if url.endswith("/api/tags"):
+            data = {"models": [{"name": name} for name in ("qwen3:8b", "llama3.2:3b", "example:cloud", "qwen3:8b")]}
+        else:
+            assert "zen" not in url
+            if "openai" in url:
+                assert kwargs["headers"]["Authorization"] == "Bearer test-key"
+            else:
+                assert "Authorization" not in kwargs["headers"]
+            data = {"data": [{"id": "chat"}, {"id": "chat"}]}
+        return httpx.Response(200, json=data, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx, "get", mock_get)
+    assert [m["name"] for m in providers.list_models()] == [
+        "ollama/qwen3:8b", "ollama/llama3.2:3b", "ollama/example:cloud", "keyless/chat", "openai/chat",
+    ]
+
+
+@pytest.mark.parametrize("model_id", ["deepseek-example-free", "nemotron-example-free", "mimo-example-free"])
+def test_zen_free_chat_requires_key(monkeypatch, model_id):
+    from llmflask.services import model_providers
+
+    monkeypatch.setattr(model_providers, "load_api_keys", lambda: {})
+    with pytest.raises(RuntimeError, match="API key is not configured"):
+        list(model_providers.chat_stream([], f"zen/{model_id}"))

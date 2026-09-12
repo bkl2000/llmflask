@@ -123,6 +123,11 @@ Choose the backend that will answer your requests:
   `ollama pull MODEL:cloud` for your chosen model on the Ollama host. Every
   model in that daemon's `/api/tags` appears automatically alongside local
   and remote models; cloud tags use the same Ollama chat endpoint.
+  Local and registered cloud tags require no provider API key in LLMFlask;
+  cloud availability depends on the Ollama account.
+- **OpenCode Zen:** even `-free` models require Zen sign-in and `ZEN_API_KEY`.
+  Free pricing does not mean anonymous API access. Configure the key with
+  `llmflask --configure-api-keys`.
 - **OpenAI or DeepSeek:** Ollama is not required for direct provider access,
   but the selected provider requires its own API key. After installing
   LLMFlask, run `~/bin/llmflask --configure-api-keys`; the helper stores keys
@@ -288,6 +293,12 @@ according to available GPU memory. The `--models` table is authoritative and
 shows each installed model's size and recommended VRAM tier.
 
 Model discovery depends on where the models and API keys live:
+
+Web, TUI, and CLI preserve Ollama tag order first, followed by keyless
+providers and configured key providers. The bundled remote providers (Zen,
+OpenAI, DeepSeek) appear only with their corresponding API keys. Use
+`llmflask --models --provider ollama` for local and registered cloud tags,
+or `llmflask --models --provider zen` for configured Zen models.
 
 ```bash
 # Directly query local Ollama plus remote providers configured on this client

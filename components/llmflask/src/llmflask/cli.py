@@ -183,8 +183,8 @@ def _direct_load_messages(state: TuiState, session_id: int):
 def _load_models(state: TuiState):
     if state.direct_mode:
         provider = REMOTE_PROVIDERS[state.provider]
-        api_key = load_api_keys().get(provider.api_key_name)
-        if not api_key:
+        api_key = load_api_keys().get(provider.api_key_name, "")
+        if not api_key and provider.requires_auth:
             state.models = []
             state.current_model = ""
             state.error = _direct_key_error(state)

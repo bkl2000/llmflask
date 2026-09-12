@@ -268,6 +268,8 @@ def _validate_mode(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
     if args.session is not None and not args.cmd:
         parser.error("--session requires --cmd")
 
+    if args.provider == "ollama" and not args.models:
+        parser.error("--provider ollama requires --models; use ollama/MODELREF for other modes")
     if args.provider not in (None, "server") and not args.tui and not args.cmd and not args.models:
         parser.error("--provider requires --tui, --cmd, or --models")
 
@@ -419,11 +421,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--provider",
-        choices=("server", *REMOTE_PROVIDERS),
+        choices=("server", "ollama", *REMOTE_PROVIDERS),
         default=None,
         help=(
             "Backend for --tui, --cmd, or --models; accepts server or a "
-            "configured remote provider and auto-detects when omitted"
+            "configured remote provider; --models also accepts ollama"
         ),
     )
     parser.add_argument(

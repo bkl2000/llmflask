@@ -21,7 +21,7 @@
       "label": "OpenCode Zen",
       "base_url": "https://opencode.ai/zen/v1",
       "api_key_name": "ZEN_API_KEY",
-      "requires_auth": false,
+      "requires_auth": true,
       "api_style": "openai"
     }
   ]

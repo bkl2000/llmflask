@@ -6,7 +6,7 @@ import sys
 import httpx
 
 from .services.api_keys import load_api_keys
-from .services.model_providers import REMOTE_PROVIDERS, list_models, list_remote_models
+from .services.model_providers import REMOTE_PROVIDERS, list_models, list_ollama_models, list_remote_models
 
 
 _VRAM_TIERS = (
@@ -78,7 +78,7 @@ def _resolve_tui_provider(
     configured = [
         provider.name
         for provider in REMOTE_PROVIDERS.values()
-        if keys.get(provider.api_key_name)
+        if keys.get(provider.api_key_name) or not provider.requires_auth
     ]
     if len(configured) == 1:
         return configured[0]
@@ -104,9 +104,11 @@ def _server_models(host: str, port: int) -> list[dict]:
 
 
 def _direct_provider_models(provider_name: str) -> list[dict]:
+    if provider_name == "ollama":
+        return list_ollama_models()
     provider = REMOTE_PROVIDERS[provider_name]
-    api_key = load_api_keys().get(provider.api_key_name)
-    if not api_key:
+    api_key = load_api_keys().get(provider.api_key_name, "")
+    if not api_key and provider.requires_auth:
         raise RuntimeError(f"{provider.api_key_name} is not configured")
     return list_remote_models(provider, api_key)
 
@@ -123,7 +125,7 @@ def print_models(host: str, port: int, provider: str = "server", use_server: boo
 
     if not models:
         print(
-            "No models found. Is Ollama running? Remote models need OPENAI_API_KEY/DEEPSEEK_API_KEY.",
+            "No models found. Is Ollama running? Authenticated remote providers need their API keys.",
             file=sys.stderr,
         )
         return 1

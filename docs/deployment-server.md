@@ -54,6 +54,15 @@ For Ollama Cloud, run `ollama signin` and `ollama pull MODEL:cloud` on the
 Ollama host. Registered cloud tags appear automatically and use the existing
 Ollama `/api/chat` path; LLMFlask does not manage the account or model catalog.
 
+Local and registered Ollama Cloud models need no API key in LLMFlask. Cloud
+use relies on the Ollama daemon's signed-in account. Ollama models appear
+first, then keyless providers, then configured key providers, preserving
+order within each group. None of the bundled remote providers is keyless:
+OpenAI, DeepSeek, and OpenCode Zen require their respective keys on the server
+account. Zen's `-free` models also require Zen sign-in and `ZEN_API_KEY`.
+Configure keys with `llmflask --configure-api-keys`; unconfigured providers
+are omitted from the Web, server TUI, and CLI model lists.
+
 ## Start
 
 The safe default listens only on `127.0.0.1`:

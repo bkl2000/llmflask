@@ -74,7 +74,7 @@ _FALLBACK_PROVIDERS = {
         "OpenCode Zen",
         "https://opencode.ai/zen/v1",
         "ZEN_API_KEY",
-        requires_auth=False,
+        requires_auth=True,
     ),
 }
 
@@ -227,6 +227,8 @@ def _remote_headers(api_key: str) -> dict[str, str]:
 
 
 def list_remote_models(provider: Provider, api_key: str) -> list[dict]:
+    if provider.requires_auth and not api_key:
+        return []
     try:
         resp = httpx.get(
             f"{provider.base_url}/models",
@@ -239,9 +241,11 @@ def list_remote_models(provider: Provider, api_key: str) -> list[dict]:
         return []
 
     models = []
+    seen = set()
     for item in data.get("data", []):
         model_id = item.get("id", "")
-        if model_id:
+        if model_id and model_id not in seen:
+            seen.add(model_id)
             models.append(_model_entry(provider.name, model_id, provider.label))
     return models
 
@@ -249,7 +253,9 @@ def list_remote_models(provider: Provider, api_key: str) -> list[dict]:
 def list_models() -> list[dict]:
     keys = load_api_keys()
     models = list_ollama_models()
-    for provider in REMOTE_PROVIDERS.values():
+    # Stable groups: Ollama, keyless providers, then configured key providers.
+    providers = sorted(REMOTE_PROVIDERS.values(), key=lambda provider: provider.requires_auth)
+    for provider in providers:
         api_key = keys.get(provider.api_key_name, "")
         if api_key or not provider.requires_auth:
             models.extend(list_remote_models(provider, api_key))
