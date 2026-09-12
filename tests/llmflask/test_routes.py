@@ -561,3 +561,64 @@ def test_chat_keeps_full_history_for_remote_models(client, monkeypatch, model):
         "old-4",
         "new",
     ]
+
+
+@pytest.mark.parametrize("ollama_status", ["available", "unreachable", "empty", "http_error", "invalid_json"])
+def test_models_discovers_ollama_and_remote_together(client, monkeypatch, caplog, ollama_status):
+    import httpx
+    from llmflask.services import model_providers
+
+    endpoint = "http://ollama.test:11434"
+    monkeypatch.setattr(model_providers, "OLLAMA_URL", endpoint)
+    monkeypatch.setattr(model_providers, "REMOTE_PROVIDERS", model_providers._FALLBACK_PROVIDERS)
+    monkeypatch.setattr(model_providers, "load_api_keys", lambda: {
+        "OPENAI_API_KEY": "test-openai", "DEEPSEEK_API_KEY": "test-deepseek",
+    })
+    calls = []
+    tags = ["gemma4:12b", "qwen3:14b", "llama3.1:8b", "example:cloud"]
+
+    def mock_get(url, **kwargs):
+        calls.append(url)
+        request = httpx.Request("GET", url)
+        if url == f"{endpoint}/api/tags":
+            assert kwargs["timeout"] == 10
+            if ollama_status == "unreachable":
+                raise httpx.ConnectError("unavailable", request=request)
+            if ollama_status == "http_error":
+                return httpx.Response(503, request=request)
+            if ollama_status == "invalid_json":
+                return httpx.Response(200, text="invalid", request=request)
+            names = tags + [tags[0]] if ollama_status == "available" else []
+            return httpx.Response(200, json={"models": [
+                {"name": name, "size": 123} for name in names
+            ]}, request=request)
+        remote_ids = {
+            "https://api.openai.com/v1/models": "shared-model",
+            "https://api.deepseek.com/models": "shared-model",
+            "https://opencode.ai/zen/v1/models": "big-pickle",
+        }
+        return httpx.Response(200, json={"data": [{"id": remote_ids[url]}]}, request=request)
+
+    monkeypatch.setattr(httpx, "get", mock_get)
+    # Repeated discovery must neither cache a failure nor accumulate entries.
+    for _ in range(2):
+        response = client.get("/api/models")
+        assert response.status_code == 200
+        models = response.get_json()
+        expected_local = [f"ollama/{tag}" for tag in tags] if ollama_status == "available" else []
+        assert [model["name"] for model in models] == expected_local + [
+            "openai/shared-model", "deepseek/shared-model", "zen/big-pickle",
+        ]
+        if expected_local:
+            assert [model["label"] for model in models[:4]] == [f"Ollama: {tag}" for tag in tags]
+            assert all(model["provider"] == "ollama" and model["size"] == 123 for model in models[:4])
+    assert calls.count(f"{endpoint}/api/tags") == 2
+    if ollama_status == "available":
+        assert not caplog.records
+    else:
+        assert f"{endpoint}/api/tags" in caplog.text
+        assert "remote providers remain available" in caplog.text
+        assert ("No Ollama models found" if ollama_status == "empty" else "Ollama model discovery failed") in caplog.text
+
+    ollama_status = "available"
+    assert client.get("/api/models").get_json()[0]["name"] == "ollama/gemma4:12b"

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2024-2026 LLMFlask contributors
 import json
+import logging
 import os
 import re
 import sys
@@ -186,20 +187,35 @@ def ollama_reachable(timeout: float = 3.0) -> bool:
 
 
 def list_ollama_models() -> list[dict]:
+    endpoint = f"{OLLAMA_URL}/api/tags"
     try:
-        resp = httpx.get(f"{OLLAMA_URL}/api/tags", timeout=10)
+        resp = httpx.get(endpoint, timeout=10)
         resp.raise_for_status()
         data = resp.json()
-    except Exception:
+    except Exception as error:
+        logging.getLogger(__name__).warning(
+            "Ollama model discovery failed at %s (%s). Check OLLAMA_URL and "
+            "the Ollama daemon; remote providers remain available.",
+            endpoint,
+            type(error).__name__,
+        )
         return []
 
     models = []
+    seen = set()
     for item in data.get("models", []):
         model_id = item.get("name", "")
-        if model_id:
+        if model_id and model_id not in seen:
+            seen.add(model_id)
             entry = dict(item)
             entry.update(_model_entry("ollama", model_id, "Ollama"))
             models.append(entry)
+    if not models:
+        logging.getLogger(__name__).warning(
+            "No Ollama models found at %s. Register a model with ollama pull; "
+            "remote providers remain available.",
+            endpoint,
+        )
     return models
 
 

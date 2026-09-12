@@ -395,3 +395,35 @@ def test_openai_chat_stream_still_requires_key(monkeypatch):
 
     with pytest.raises(RuntimeError, match="API key"):
         list(model_providers.chat_stream([], "openai/gpt-test"))
+
+
+def test_cloud_model_uses_local_ollama_chat_endpoint(monkeypatch):
+    import httpx
+    from llmflask.services import model_providers
+
+    captured = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def raise_for_status(self):
+            pass
+
+        def iter_lines(self):
+            return iter([json.dumps({"message": {"content": "cloud reply"}})])
+
+    def mock_stream(method, url, **kwargs):
+        captured.update(method=method, url=url, **kwargs)
+        return Response()
+
+    monkeypatch.setattr(model_providers, "OLLAMA_URL", "http://ollama.test:11434")
+    monkeypatch.setattr(httpx, "stream", mock_stream)
+    assert list(model_providers.chat_stream([], "ollama/example:cloud")) == ["cloud reply"]
+    assert captured["method"] == "POST"
+    assert captured["url"] == "http://ollama.test:11434/api/chat"
+    assert captured["json"]["model"] == "example:cloud"
+    assert model_providers.provider_for_model("ollama/example:cloud") == "ollama"

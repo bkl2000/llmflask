@@ -42,6 +42,18 @@ ssh user@server 'chmod 0755 ~/bin/llmflask && ~/bin/llmflask --version'
 Set `OLLAMA_URL=http://GPU_SERVER:11434` when Ollama runs on another computer.
 Set `SEARXNG_URL` in the same way when search uses a remote SearXNG instance.
 
+The Web model dropdown combines every model from `$OLLAMA_URL/api/tags`
+with the available remote providers. `OLLAMA_URL` is read when LLMFlask
+starts; `127.0.0.1` refers to the server's own runtime environment. Restart
+the server after changing it. If only remote models appear, check
+`curl -f "$OLLAMA_URL/api/tags"` from that same environment (the default is
+`http://127.0.0.1:11434`). Discovery logs a warning for failed requests or an
+empty Ollama model list and continues listing remote models.
+
+For Ollama Cloud, run `ollama signin` and `ollama pull MODEL:cloud` on the
+Ollama host. Registered cloud tags appear automatically and use the existing
+Ollama `/api/chat` path; LLMFlask does not manage the account or model catalog.
+
 ## Start
 
 The safe default listens only on `127.0.0.1`:

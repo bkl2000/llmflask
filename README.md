@@ -119,6 +119,10 @@ Choose the backend that will answer your requests:
 - **Ollama on another computer:** the client does not need a local Ollama
   installation, but the remote endpoint must be reachable. Set
   `OLLAMA_URL=http://OLLAMA_SERVER:11434` when starting LLMFlask.
+- **Ollama Cloud through the local daemon:** run `ollama signin`, then
+  `ollama pull MODEL:cloud` for your chosen model on the Ollama host. Every
+  model in that daemon's `/api/tags` appears automatically alongside local
+  and remote models; cloud tags use the same Ollama chat endpoint.
 - **OpenAI or DeepSeek:** Ollama is not required for direct provider access,
   but the selected provider requires its own API key. After installing
   LLMFlask, run `~/bin/llmflask --configure-api-keys`; the helper stores keys
