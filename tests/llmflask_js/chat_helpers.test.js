@@ -9,6 +9,7 @@ const {
     renderMarkdown,
     sessionStorageKeyForUser,
     clampMenuPosition,
+    renderModelOptions,
 } = require('../../components/llmflask/src/llmflask/static/chat_helpers.js');
 
 test('escapeHtml escapes unsafe markup', () => {
@@ -58,4 +59,45 @@ test('clampMenuPosition keeps menu inside viewport', () => {
         clampMenuPosition(-20, -10, 200, 100, 1000, 720),
         {left: 8, top: 8},
     );
+});
+
+test('model selector renders Local, Free, and API groups without a fake option', () => {
+    const document = {createElement: tag => ({tag, children: [], appendChild(child) { this.children.push(child); }})};
+    const select = {
+        children: [],
+        set innerHTML(value) { this.children = []; },
+        appendChild(child) { this.children.push(child); },
+    };
+    renderModelOptions(select, {
+        groups: [{id: 'local', label: 'Local'}, {id: 'free', label: 'Free'}, {id: 'api', label: 'API'}],
+        free_hint: 'Configure Zen',
+        default_model: 'ollama/qwen3:14b',
+        models: [
+            {name: 'ollama/qwen3:14b', label: 'Ollama: qwen3:14b', group: 'local'},
+            {name: 'zen/example-free', label: 'OpenCode Zen: example-free', group: 'free'},
+            {name: 'deepseek/deepseek-chat', label: 'DeepSeek: deepseek-chat', group: 'api'},
+        ],
+    }, document);
+    assert.deepEqual(select.children.map(group => group.label), ['Local', 'Free', 'API']);
+    assert.deepEqual(select.children.map(group => group.children[0].value), [
+        'ollama/qwen3:14b', 'zen/example-free', 'deepseek/deepseek-chat',
+    ]);
+
+    renderModelOptions(select, {
+        groups: [{id: 'local', label: 'Local'}, {id: 'free', label: 'Free'}, {id: 'api', label: 'API'}],
+        free_hint: 'Configure Zen',
+        default_model: 'ollama/qwen3:14b',
+        models: [{name: 'ollama/qwen3:14b', group: 'local'}],
+    }, document);
+    assert.deepEqual(select.children.map(group => group.label), ['Local']);
+    assert.deepEqual(select.children[0].children.map(option => option.value), ['ollama/qwen3:14b']);
+
+    renderModelOptions(select, {
+        groups: [{id: 'local', label: 'Local'}, {id: 'free', label: 'Free'}, {id: 'api', label: 'API'}],
+        default_model: '',
+        models: [{name: 'deepseek/deepseek-chat', group: 'api'}],
+    }, document);
+    assert.equal(select.children[0].value, '');
+    assert.equal(select.children[0].disabled, true);
+    assert.equal(select.children[1].label, 'API');
 });

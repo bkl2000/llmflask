@@ -36,6 +36,9 @@ class TuiState:
         self.sessions: list[dict] = []
         self.messages: list[dict] = []
         self.models: list[dict] = []
+        self.model_groups: list[dict] = []
+        self.free_hint: str = ""
+        self.model_selector_index: int | None = None
         self.current_session: int | None = None
         self.current_model: str = ""
         self.search_enabled: bool = False

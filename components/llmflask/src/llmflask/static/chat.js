@@ -5,6 +5,7 @@ const {
     renderMarkdown,
     sessionStorageKeyForUser,
     clampMenuPosition,
+    renderModelOptions,
 } = window.LLMFlaskHelpers;
 
 const state = {
@@ -20,6 +21,7 @@ const messagesEl = document.getElementById('messages');
 const userInput = document.getElementById('user-input');
 const sendBtn = document.getElementById('send-btn');
 const modelSelect = document.getElementById('model-select');
+const modelHint = document.getElementById('model-hint');
 const sessionsList = document.getElementById('sessions-list');
 const newChatBtn = document.getElementById('new-chat-btn');
 const searchToggle = document.getElementById('search-toggle');
@@ -117,18 +119,13 @@ function showEmptyState() {
 
 async function loadModels() {
     try {
-        const models = await apiJson('/api/models', {}, 'Modelle konnten nicht geladen werden.');
-        modelSelect.innerHTML = '';
-        models.forEach(m => {
-            const opt = document.createElement('option');
-            opt.value = m.name;
-            opt.textContent = m.label || m.name;
-            modelSelect.appendChild(opt);
-        });
-        if (models.length && !state.currentModel) {
-            state.currentModel = models[0].name;
-            modelSelect.value = state.currentModel;
-        }
+        const selection = await apiJson('/api/model-selection', {}, 'Modelle konnten nicht geladen werden.');
+        const models = selection.models;
+        renderModelOptions(modelSelect, selection, document);
+        modelHint.textContent = selection.free_hint || '';
+        modelHint.hidden = !selection.free_hint;
+        if (!state.currentModel) state.currentModel = selection.default_model;
+        if (state.currentModel) modelSelect.value = state.currentModel;
     } catch (e) {
         showError('Ollama nicht erreichbar — Modelle konnten nicht geladen werden.');
     }
@@ -447,6 +444,10 @@ async function confirmDelete(sid) {
 }
 
 async function newSession() {
+    if (!state.currentModel) {
+        showError('Bitte zuerst ein Modell auswählen.');
+        return;
+    }
     try {
         const data = await apiJson('/api/sessions' + getUserParam(), {
             method: 'POST',
@@ -541,6 +542,10 @@ async function sendMessage() {
         return;
     }
     if (!text) return;
+    if (!state.currentModel) {
+        showError('Bitte zuerst ein Modell auswählen.');
+        return;
+    }
     if (!state.currentSessionId) {
         showError('Bitte zuerst einen Chat anlegen.');
         return;

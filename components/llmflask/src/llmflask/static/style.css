@@ -115,6 +115,13 @@ body {
     font-size: 13px;
 }
 
+#model-hint {
+    color: #9ca3af;
+    font-size: 12px;
+    max-width: 240px;
+    white-space: pre-line;
+}
+
 .user-dropdown {
     position: relative;
 }

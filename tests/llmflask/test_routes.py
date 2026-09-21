@@ -29,6 +29,42 @@ def test_get_models(client):
     assert resp.status_code == 200
 
 
+def test_model_selection_returns_groups_and_key_hint(client, monkeypatch):
+    from llmflask.services import model_providers as providers
+
+    monkeypatch.setattr(providers, "load_api_keys", lambda: {})
+    monkeypatch.setattr(providers, "list_models", lambda: [providers._model_entry("ollama", "qwen3:14b", "Ollama")])
+
+    selection = client.get("/api/model-selection").get_json()
+
+    assert [group["label"] for group in selection["groups"]] == ["Local", "Free", "API"]
+    assert selection["models"][0]["name"] == "ollama/qwen3:14b"
+    assert selection["models"][0]["group"] == "local"
+    assert len(selection["models"]) == 1
+    assert selection["default_model"] == "ollama/qwen3:14b"
+    assert "llmflask --configure-api-keys" in selection["free_hint"]
+
+
+def test_model_selection_does_not_default_to_paid_api(client, monkeypatch):
+    from llmflask import cli
+    from llmflask.services import model_providers as providers
+
+    monkeypatch.setattr(providers, "load_api_keys", lambda: {"DEEPSEEK_API_KEY": "configured"})
+    monkeypatch.setattr(providers, "list_models", lambda: [
+        providers._model_entry("deepseek", "deepseek-chat", "DeepSeek")
+    ])
+
+    selection = client.get("/api/model-selection").get_json()
+
+    assert selection["models"][0]["name"] == "deepseek/deepseek-chat"
+    assert selection["default_model"] == ""
+    monkeypatch.setattr(cli, "_api_get", lambda *args: selection)
+    state = cli.TuiState("127.0.0.1", 5000)
+    state.current_model = "ollama/missing"
+    cli._load_models(state)
+    assert state.current_model == ""
+
+
 def test_create_and_list_sessions(client):
     resp = client.post("/api/sessions?user=test", json={"title": "Test", "model": "llama3.1:8b"})
     assert resp.status_code == 201
@@ -638,7 +674,10 @@ def test_web_tui_cli_share_available_models(client, monkeypatch, capsys, keys):
     monkeypatch.setattr("llmflask.model_discovery.load_api_keys", lambda: keys)
     monkeypatch.setattr(cli, "load_api_keys", lambda: keys)
     local = ["ollama/llama3.2:3b", "ollama/qwen3:8b", "ollama/example:cloud"]
-    expected = local + [f"{p.name}/example-free" for p in providers.REMOTE_PROVIDERS.values() if keys.get(p.api_key_name)]
+    expected = local + (["zen/example-free"] if keys.get("ZEN_API_KEY") else []) + [
+        f"{p.name}/example-free" for p in providers.REMOTE_PROVIDERS.values()
+        if p.name != "zen" and keys.get(p.api_key_name)
+    ]
 
     def mock_get(url, **kwargs):
         if url.endswith("/api/tags"):

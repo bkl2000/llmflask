@@ -29,7 +29,14 @@ from .database import (
 )
 from .services.api_keys import load_api_keys
 from .services.exporter import export_md
-from .services.model_providers import REMOTE_PROVIDERS, chat_stream, list_remote_models
+from .services.model_providers import (
+    REMOTE_PROVIDERS,
+    chat_stream,
+    list_remote_models,
+    model_selection,
+    normalize_legacy_models,
+    order_models,
+)
 from .text_utils import ensure_trailing_newline
 from .tui.rendering import (
     _is_indented_code_line,
@@ -113,11 +120,21 @@ def _set_api_error(state: "TuiState | None", action: str, error: Exception):
         state.error = f"{action}: {error}"
 
 
-def _api_get(url: str, state: "TuiState | None" = None, action: str = "GET") -> dict | list:
+def _api_get(
+    url: str,
+    state: "TuiState | None" = None,
+    action: str = "GET",
+    allow_missing: bool = False,
+) -> dict | list | None:
     try:
         resp = httpx.get(url, timeout=10)
         resp.raise_for_status()
         return resp.json()
+    except httpx.HTTPStatusError as error:
+        if allow_missing and error.response.status_code == 404:
+            return None
+        _set_api_error(state, action, error)
+        return {}
     except Exception as e:
         _set_api_error(state, action, e)
         return {}
@@ -186,10 +203,16 @@ def _load_models(state: TuiState):
         api_key = load_api_keys().get(provider.api_key_name, "")
         if not api_key and provider.requires_auth:
             state.models = []
+            selection = model_selection(state.models)
+            state.model_groups = selection["groups"]
+            state.free_hint = selection["free_hint"]
             state.current_model = ""
             state.error = _direct_key_error(state)
             return
-        state.models = list_remote_models(provider, api_key)
+        state.models = order_models(list_remote_models(provider, api_key))
+        selection = model_selection(state.models)
+        state.model_groups = selection["groups"]
+        state.free_hint = selection["free_hint"]
         if not state.models:
             state.current_model = ""
             state.error = f"No {provider.label} models loaded."
@@ -198,11 +221,25 @@ def _load_models(state: TuiState):
             state.current_model = state.models[0].get("name", "")
         return
 
-    data = _api_get(f"{state.base}/api/models", state, "Loading models")
-    state.models = data if isinstance(data, list) else []
+    data = _api_get(f"{state.base}/api/model-selection", state, "Loading models", True)
+    if data is None:
+        legacy = _api_get(f"{state.base}/api/models", state, "Loading models")
+        data = (
+            model_selection(normalize_legacy_models(legacy), include_key_hint=False)
+            if isinstance(legacy, list) else {}
+        )
+    if isinstance(data, dict):
+        state.models = data.get("models", [])
+    else:
+        state.models = data if isinstance(data, list) else []
+    if isinstance(data, dict):
+        state.model_groups = data.get("groups", [])
+        state.free_hint = data.get("free_hint", "")
     if not state.current_model or state.current_model not in [m.get("name") for m in state.models]:
-        if state.models:
-            state.current_model = state.models[0].get("name", "")
+        state.current_model = (
+            data.get("default_model", "") if isinstance(data, dict)
+            else state.models[0].get("name", "") if state.models else ""
+        )
 
 
 def _current_model_label(state: TuiState) -> str:
@@ -239,6 +276,9 @@ def _load_sessions(state: TuiState):
 
 
 def _new_session(state: TuiState):
+    if not state.current_model:
+        state.error = "Select a model with Ctrl+P first."
+        return
     if state.direct_mode:
         sid = create_session(
             _direct_db_path(state),
@@ -360,7 +400,7 @@ def _send_message(state: TuiState):
         state.error = "Create a chat first with Ctrl+N."
         return
     if not state.current_model:
-        state.error = "No model available."
+        state.error = "No model selected. Press Ctrl+P to choose one."
         return
 
     msg = state.input_text.strip()
@@ -441,7 +481,11 @@ def draw(stdscr, state):
     h, w = stdscr.getmaxyx()
     sidebar_w = max(24, w // 4)
 
-    if sidebar_w >= w - 1 or h < 4:
+    if w - sidebar_w - 2 < 4 or h < 8:
+        if state.model_selector_index is not None and w >= 32:
+            stdscr.erase()
+            _draw_model_selector(stdscr, state, h, w)
+            stdscr.refresh()
         return
 
     stdscr.erase()
@@ -550,10 +594,12 @@ def draw(stdscr, state):
     stdscr.addstr(h - 1, 0, f"{prompt}{visible_input}"[:w - 1], attr)
 
     # Cursor positionieren
-    if state.focus == FOCUS_INPUT:
+    if state.focus == FOCUS_INPUT and state.model_selector_index is None:
         cursor_x = len(prompt) + state.input_cursor - input_start
         stdscr.move(h - 1, cursor_x if cursor_x < w else w - 1)
 
+    if state.model_selector_index is not None:
+        _draw_model_selector(stdscr, state, h, w)
     stdscr.refresh()
 
 
@@ -566,13 +612,84 @@ def _toggle_search(state):
     state.error = f"Search {'ON' if state.search_enabled else 'OFF'}"
 
 
-def _cycle_model(state):
-    names = [m.get("name", "") for m in state.models]
-    if state.current_model in names:
-        idx = names.index(state.current_model)
-        idx = (idx + 1) % len(names)
-        state.current_model = names[idx]
-        state.error = f"Model: {_current_model_label(state)}"
+def _selector_rows(state: TuiState) -> list[tuple[str, int | None]]:
+    rows = [("Select model", None)]
+    for group in state.model_groups:
+        group_models = [
+            (index, model) for index, model in enumerate(state.models)
+            if model.get("group") == group["id"]
+        ]
+        if group_models or group["id"] == "free":
+            rows.append((group["label"].upper(), None))
+            rows.extend(
+                (model.get("label") or model["name"], index)
+                for index, model in group_models
+            )
+            if group["id"] == "free" and state.free_hint:
+                rows.extend((line, None) for line in state.free_hint.splitlines())
+    rows.append(("Up/Down  Enter=Select  Esc=Cancel", None))
+    return rows
+
+
+def _draw_model_selector(stdscr, state: TuiState, h: int, w: int) -> None:
+    rows = _selector_rows(state)
+    if h < 2 or w < 3:
+        return
+    body = rows[1:-1]
+    visible = h - 2
+    selected_row = next(
+        (index for index, (_, model_index) in enumerate(body)
+         if model_index == state.model_selector_index),
+        0,
+    )
+    start = min(max(0, selected_row - visible // 2), max(0, len(body) - visible))
+    width = min(max(1, w - 2), 72)
+    x = max(0, (w - width) // 2)
+    paint_width = min(width, w - x - 1)
+    for y, label in ((0, rows[0][0]), (h - 1, rows[-1][0])):
+        stdscr.addstr(y, x, " " * paint_width)
+        stdscr.addstr(y, x, label[:paint_width], curses.A_BOLD)
+    for y, (label, model_index) in enumerate(body[start:start + visible], 1):
+        stdscr.addstr(y, x, " " * paint_width)
+        marker = "> " if model_index == state.model_selector_index else "  "
+        current = (
+            " *" if model_index is not None
+            and state.models[model_index].get("name") == state.current_model else ""
+        )
+        if model_index == state.model_selector_index:
+            attr = curses.A_REVERSE
+        elif model_index is None:
+            attr = curses.A_BOLD
+        else:
+            attr = curses.A_NORMAL
+        stdscr.addstr(y, x, (marker + label + current)[:paint_width], attr)
+
+
+def _open_model_selector(state: TuiState) -> None:
+    names = [model.get("name") for model in state.models]
+    state.model_selector_index = names.index(state.current_model) if state.current_model in names else 0
+
+
+def _handle_model_selector_key(state: TuiState, code: int) -> str:
+    if code == KEY_ESC:
+        state.model_selector_index = None
+        return "model_cancel"
+    if code == curses.KEY_UP:
+        state.model_selector_index = max(0, state.model_selector_index - 1)
+        return "model_up"
+    if code == curses.KEY_DOWN:
+        state.model_selector_index = (
+            min(len(state.models) - 1, state.model_selector_index + 1)
+            if state.models else 0
+        )
+        return "model_down"
+    if code in (curses.KEY_ENTER, 10, 13):
+        if state.models:
+            state.current_model = state.models[state.model_selector_index]["name"]
+            state.error = f"Model: {_current_model_label(state)}"
+        state.model_selector_index = None
+        return "model_select"
+    return "model_noop"
 
 
 def _export_url(state):
@@ -754,7 +871,6 @@ CONTROL_INPUT = {
     KEY_CTRL_N: _new_session,
     KEY_CTRL_E: _export_url,
     KEY_CTRL_S: _toggle_search,
-    KEY_CTRL_P: _cycle_model,
     9: _focus_sessions,
 }
 
@@ -878,6 +994,13 @@ def _handle_key(state: TuiState, ch: int | str) -> str | None:
         return finish("quit", "quit")
 
     state.error = ""
+
+    if state.model_selector_index is not None:
+        return finish(_handle_model_selector_key(state, code))
+
+    if code == KEY_CTRL_P and not state.streaming:
+        _open_model_selector(state)
+        return finish("model_open")
 
     global_action = _handle_global_key(state, code)
     if global_action is not None:

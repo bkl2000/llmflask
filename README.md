@@ -294,9 +294,12 @@ shows each installed model's size and recommended VRAM tier.
 
 Model discovery depends on where the models and API keys live:
 
-Web, TUI, and CLI preserve Ollama tag order first, followed by keyless
-providers and configured key providers. The bundled remote providers (Zen,
-OpenAI, DeepSeek) appear only with their corresponding API keys. Use
+Web and TUI group models as Local (Ollama), Free (Zen `-free` models), then API
+(configured remote providers). Within each group, discovery order is retained.
+The CLI `--models` table uses the same order and MODELREF values. Zen models
+require a Zen API key even when free; Web and TUI show setup guidance when
+that key is missing. Paid API models require explicit selection in Web and
+server TUI, including when no local or free model is available. Use
 `llmflask --models --provider ollama` for local and registered cloud tags,
 or `llmflask --models --provider zen` for configured Zen models.
 
@@ -341,8 +344,9 @@ llmflask --tui --host 127.0.0.1 --user alice
 ```
 
 Useful keys include `Ctrl+N` for a new chat, `Ctrl+E` to export Markdown,
-`Ctrl+S` to toggle search, `Ctrl+P` to change models, and `Tab` to move between
-the chat and session list. Run with `--tui-trace` only when debugging; tracing
+`Ctrl+S` to toggle search, `Ctrl+P` to open the model list (Up/Down, Enter to
+select, Esc to cancel), and `Tab` to move between the chat and session list.
+Run with `--tui-trace` only when debugging; tracing
 is off by default and writes under `/tmp`.
 
 ### Command mode

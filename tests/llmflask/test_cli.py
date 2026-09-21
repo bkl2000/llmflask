@@ -2499,6 +2499,200 @@ def test_direct_load_models_uses_selected_provider(monkeypatch):
     assert state.current_model == "deepseek/deepseek-chat"
 
 
+def test_server_tui_uses_model_selection_endpoint(monkeypatch):
+    import httpx
+    from llmflask import cli
+
+    selection = {
+        "models": [
+            {"name": "ollama/qwen3:14b", "group": "local"},
+            {"name": "deepseek/deepseek-chat", "group": "api"},
+        ],
+        "groups": [{"id": "local", "label": "Local"}, {"id": "api", "label": "API"}],
+        "free_hint": "Configure Zen",
+        "default_model": "ollama/qwen3:14b",
+    }
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        return httpx.Response(200, json=selection, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(cli.httpx, "get", fake_get)
+    state = cli.TuiState("127.0.0.1", 5000)
+    cli._load_models(state)
+
+    assert calls == ["http://127.0.0.1:5000/api/model-selection"]
+    assert state.current_model == "ollama/qwen3:14b"
+    assert state.model_groups == selection["groups"]
+    assert state.free_hint == "Configure Zen"
+
+    state.current_model = "deepseek/deepseek-chat"
+    cli._load_models(state)
+    assert state.current_model == "deepseek/deepseek-chat"
+
+
+def test_server_tui_falls_back_to_legacy_models_and_backend_grouping(monkeypatch):
+    import httpx
+    from llmflask import cli
+    from llmflask.services import model_providers
+
+    calls = []
+    grouped = []
+    normalize = model_providers.normalize_legacy_models
+
+    def record_normalization(models):
+        grouped.append(True)
+        return normalize(models)
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        request = httpx.Request("GET", url)
+        if url.endswith("/model-selection"):
+            return httpx.Response(404, request=request)
+        return httpx.Response(200, json=[
+            {"name": "deepseek/deepseek-chat", "provider": "deepseek", "label": "DeepSeek: deepseek-chat"},
+            {"name": "ollama/qwen3:14b", "provider": "ollama", "label": "Ollama: qwen3:14b"},
+            {"name": "zen/example-free", "provider": "zen", "label": "Zen: example-free"},
+        ], request=request)
+
+    monkeypatch.setattr(cli.httpx, "get", fake_get)
+    monkeypatch.setattr(cli, "normalize_legacy_models", record_normalization)
+    state = cli.TuiState("127.0.0.1", 5000)
+    cli._load_models(state)
+
+    assert calls == [
+        "http://127.0.0.1:5000/api/model-selection",
+        "http://127.0.0.1:5000/api/models",
+    ]
+    assert grouped == [True]
+    assert [model["group"] for model in state.models] == ["local", "free", "api"]
+    assert state.current_model == "ollama/qwen3:14b"
+    assert state.free_hint == ""  # An older server cannot report its Zen key status.
+
+
+@pytest.mark.parametrize("failure", ["http", "network"])
+def test_server_tui_does_not_fallback_on_other_errors(monkeypatch, failure):
+    import httpx
+    from llmflask import cli
+
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        if failure == "network":
+            raise httpx.ConnectError("offline", request=httpx.Request("GET", url))
+        return httpx.Response(503, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(cli.httpx, "get", fake_get)
+    state = cli.TuiState("127.0.0.1", 5000)
+    cli._load_models(state)
+
+    assert calls == ["http://127.0.0.1:5000/api/model-selection"]
+    assert state.models == []
+    assert ("503" if failure == "http" else "offline") in state.error
+
+
+def test_model_selector_opens_navigates_and_cancels(monkeypatch):
+    from llmflask import cli
+
+    monkeypatch.setattr(cli.curses, "KEY_UP", 259, raising=False)
+    monkeypatch.setattr(cli.curses, "KEY_DOWN", 258, raising=False)
+    state = cli.TuiState("x", 1)
+    state.models = [
+        {"name": "ollama/qwen3:14b", "label": "Ollama: qwen3:14b", "group": "local"},
+        {"name": "deepseek/deepseek-chat", "label": "DeepSeek: deepseek-chat", "group": "api"},
+    ]
+    state.model_groups = [{"id": "local", "label": "Local"}, {"id": "free", "label": "Free"}, {"id": "api", "label": "API"}]
+    state.free_hint = "Free models require a Zen key.\nConfigure: llmflask --configure-api-keys"
+    state.current_model = "ollama/qwen3:14b"
+
+    cli._handle_key(state, cli.KEY_CTRL_P)
+    assert state.model_selector_index == 0
+    assert state.current_model == "ollama/qwen3:14b"
+    rows = cli._selector_rows(state)
+    assert [label for label, index in rows if index is None][1:5] == [
+        "LOCAL", "FREE", "Free models require a Zen key.",
+        "Configure: llmflask --configure-api-keys",
+    ]
+    assert [index for _, index in rows if index is not None] == [0, 1]
+
+    rendered = []
+
+    class SelectorScreen:
+        def addstr(self, y, x, label, attr=0):
+            rendered.append(label)
+
+    cli._draw_model_selector(SelectorScreen(), state, 20, 80)
+    assert any("Ollama: qwen3:14b *" in line for line in rendered)
+
+    cli._handle_key(state, 258)
+    assert state.model_selector_index == 1
+    assert state.current_model == "ollama/qwen3:14b"
+    cli._handle_key(state, cli.KEY_ESC)
+    assert state.model_selector_index is None
+    assert state.current_model == "ollama/qwen3:14b"
+
+    cli._handle_key(state, cli.KEY_CTRL_P)
+    cli._handle_key(state, 258)
+    cli._handle_key(state, 10)
+    assert state.model_selector_index is None
+    assert state.current_model == "deepseek/deepseek-chat"
+
+    cli._handle_key(state, cli.KEY_CTRL_P)
+    cli._handle_key(state, 259)
+    cli._handle_key(state, 10)
+    assert state.current_model == "ollama/qwen3:14b"
+
+
+def test_model_selector_draws_on_small_terminal():
+    from llmflask import cli
+
+    state = cli.TuiState("x", 1)
+    state.model_selector_index = 0
+    state.model_groups = [{"id": "free", "label": "Free"}]
+    state.free_hint = "Free models require a Zen key.\nConfigure: llmflask --configure-api-keys"
+
+    class Screen:
+        def getmaxyx(self):
+            return (3, 30)
+        def erase(self):
+            pass
+        def addstr(self, *args):
+            pass
+        def refresh(self):
+            pass
+
+    cli.draw(Screen(), state)
+
+
+def test_model_selector_skips_unusable_narrow_terminal():
+    from llmflask import cli
+
+    state = cli.TuiState("x", 1)
+    state.model_selector_index = 0
+
+    class NarrowScreen:
+        def getmaxyx(self):
+            return (12, 26)
+        def erase(self):
+            raise AssertionError("normal drawing should be skipped")
+
+    cli.draw(NarrowScreen(), state)
+
+
+def test_new_session_requires_explicit_model_when_no_default(monkeypatch):
+    from llmflask import cli
+
+    state = cli.TuiState("x", 1)
+    monkeypatch.setattr(cli, "_api_post", lambda *args: (_ for _ in ()).throw(AssertionError("unexpected request")))
+
+    cli._new_session(state)
+
+    assert "Ctrl+P" in state.error
+    assert state.current_session is None
+
+
 def test_direct_load_sessions_uses_local_sqlite(monkeypatch, tmp_path):
     from llmflask import cli
     from llmflask.database import create_session, init_db

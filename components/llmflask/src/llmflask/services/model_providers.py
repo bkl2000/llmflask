@@ -152,6 +152,12 @@ def _parse_providers_json(
 
 REMOTE_PROVIDERS = _load_providers()
 
+MODEL_GROUPS = (("local", "Local"), ("free", "Free"), ("api", "API"))
+ZEN_KEY_HINT = (
+    "Free models require a Zen key.\n"
+    "Configure: llmflask --configure-api-keys"
+)
+
 
 def _model_ref(provider: str, model_id: str) -> str:
     return f"{provider}/{model_id}"
@@ -174,7 +180,13 @@ def provider_for_model(model_ref: str) -> str:
 def _model_entry(provider: str, model_id: str, label_prefix: str | None = None) -> dict:
     name = _model_ref(provider, model_id)
     label = f"{label_prefix}: {model_id}" if label_prefix else model_id
-    return {"name": name, "provider": provider, "id": model_id, "label": label}
+    if provider == "ollama":
+        group = "local"
+    elif provider == "zen" and model_id.endswith("-free"):
+        group = "free"
+    else:
+        group = "api"
+    return {"name": name, "provider": provider, "id": model_id, "label": label, "group": group}
 
 
 def ollama_reachable(timeout: float = 3.0) -> bool:
@@ -250,6 +262,24 @@ def list_remote_models(provider: Provider, api_key: str) -> list[dict]:
     return models
 
 
+def order_models(models: list[dict]) -> list[dict]:
+    """Keep discovery order within Local, Free, and API groups."""
+    group_order = {name: index for index, (name, _) in enumerate(MODEL_GROUPS)}
+    return sorted(models, key=lambda model: group_order.get(model.get("group"), 2))
+
+
+def normalize_legacy_models(models: list[dict]) -> list[dict]:
+    """Add current group metadata to models from an older server."""
+    normalized = []
+    for model in models:
+        name = model.get("name", "")
+        prefix, separator, suffix = name.partition("/")
+        provider = model.get("provider") or (prefix if separator else "ollama")
+        model_id = model.get("id") or (suffix if separator else name)
+        normalized.append({**model, "group": _model_entry(provider, model_id)["group"]})
+    return order_models(normalized)
+
+
 def list_models() -> list[dict]:
     keys = load_api_keys()
     models = list_ollama_models()
@@ -259,7 +289,23 @@ def list_models() -> list[dict]:
         api_key = keys.get(provider.api_key_name, "")
         if api_key or not provider.requires_auth:
             models.extend(list_remote_models(provider, api_key))
-    return models
+    return order_models(models)
+
+
+def model_selection(models: list[dict] | None = None, *, include_key_hint: bool = True) -> dict:
+    """Return selectable models and setup guidance for the model pickers."""
+    keys = load_api_keys()
+    zen = REMOTE_PROVIDERS.get("zen")
+    available = list_models() if models is None else models
+    return {
+        "models": available,
+        "groups": [{"id": name, "label": label} for name, label in MODEL_GROUPS],
+        "free_hint": ZEN_KEY_HINT if include_key_hint and zen and not keys.get(zen.api_key_name) else "",
+        "default_model": next(
+            (model["name"] for model in available if model.get("group") in ("local", "free")),
+            "",
+        ),
+    }
 
 
 def ollama_chat_stream(messages: list[dict], model: str) -> Iterator[str]:

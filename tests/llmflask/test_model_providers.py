@@ -67,6 +67,36 @@ def test_list_models_combines_enabled_providers(monkeypatch):
         "deepseek/deepseek-v4-flash",
     ]
     assert models[0]["label"] == "Ollama: llama3.1:8b"
+    assert [m["group"] for m in models] == ["local", "api", "api"]
+
+
+def test_free_models_precede_api_models_without_changing_provider_order(monkeypatch):
+    from llmflask.services import model_providers as providers
+
+    monkeypatch.setattr(providers, "load_api_keys", lambda: {
+        "OPENAI_API_KEY": "openai", "DEEPSEEK_API_KEY": "deepseek", "ZEN_API_KEY": "zen",
+    })
+    monkeypatch.setattr(providers, "list_ollama_models", lambda: [
+        providers._model_entry("ollama", "first"), providers._model_entry("ollama", "second")
+    ])
+    monkeypatch.setattr(providers, "list_remote_models", lambda provider, key: [
+        providers._model_entry(provider.name, model_id, provider.label)
+        for model_id in (["paid", "first-free", "second-free"] if provider.name == "zen" else ["one", "two"])
+    ])
+
+    models = providers.list_models()
+
+    assert [model["group"] for model in models] == [
+        "local", "local", "free", "free", "api", "api", "api", "api", "api",
+    ]
+    assert [model["name"] for model in models[:4]] == [
+        "ollama/first", "ollama/second", "zen/first-free", "zen/second-free",
+    ]
+    assert [model["name"] for model in models[4:]] == [
+        "openai/one", "openai/two", "deepseek/one", "deepseek/two", "zen/paid",
+    ]
+    assert providers.model_selection(models)["default_model"] == "ollama/first"
+    assert providers.model_selection(models[2:])["default_model"] == "zen/first-free"
 
 
 def test_list_models_skips_remote_without_keys(monkeypatch):
@@ -299,8 +329,10 @@ def test_zen_provider_models_listed_with_key(monkeypatch):
     models = model_providers.list_models()
     zen_models = [m for m in models if m["provider"] == "zen"]
     assert len(zen_models) == 2
-    assert zen_models[0]["name"] == "zen/big-pickle"
-    assert zen_models[1]["name"] == "zen/mimo-v2.5-free"
+    assert zen_models[0]["name"] == "zen/mimo-v2.5-free"
+    assert zen_models[0]["group"] == "free"
+    assert zen_models[1]["name"] == "zen/big-pickle"
+    assert zen_models[1]["group"] == "api"
 
 
 def test_zen_models_hidden_without_key(monkeypatch):
@@ -320,6 +352,10 @@ def test_zen_models_hidden_without_key(monkeypatch):
     monkeypatch.setattr(httpx, "get", mock_get)
     assert model_providers.list_models() == []
     assert model_providers.list_remote_models(model_providers.REMOTE_PROVIDERS["zen"], "") == []
+    selection = model_providers.model_selection([])
+    assert selection["models"] == []
+    assert "llmflask --configure-api-keys" in selection["free_hint"]
+    assert [group["id"] for group in selection["groups"]] == ["local", "free", "api"]
 
 
 def test_zen_requires_auth_in_bundled_catalog_and_fallback():

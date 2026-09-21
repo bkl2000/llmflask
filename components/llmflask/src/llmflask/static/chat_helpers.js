@@ -100,12 +100,38 @@
         };
     }
 
+    function renderModelOptions(select, selection, document) {
+        select.innerHTML = '';
+        if (selection.models.length && !selection.default_model) {
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = 'Select model';
+            placeholder.disabled = true;
+            placeholder.selected = true;
+            select.appendChild(placeholder);
+        }
+        selection.groups.forEach(group => {
+            const entries = selection.models.filter(model => model.group === group.id);
+            if (!entries.length) return;
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = group.label;
+            entries.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.name;
+                option.textContent = model.label || model.name;
+                optgroup.appendChild(option);
+            });
+            select.appendChild(optgroup);
+        });
+    }
+
     const helpers = {
         escapeHtml,
         renderInlineMarkdown,
         renderMarkdown,
         sessionStorageKeyForUser,
         clampMenuPosition,
+        renderModelOptions,
     };
 
     if (typeof module !== 'undefined' && module.exports) {
