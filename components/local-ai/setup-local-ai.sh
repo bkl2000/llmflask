@@ -12,12 +12,13 @@ export LC_ALL=C.UTF-8
 # Every run checks the Ollama version via GitHub API — update only if needed.
 # Model tags are checked with ollama pull on every run.
 #
-# Model selection automatic by GPU VRAM.
+# Model selection automatic by NVIDIA GPU VRAM, with a CPU-only default.
 # Models from ollama.com/library — check for updates:
 #   https://ollama.com/search
 #
 # Custom models via environment variable:
 #   MODELS="qwen3:14b llama3.1:8b" ./setup-local-ai.sh
+#   MODEL_PROFILE=cpu ./setup-local-ai.sh
 #   INSTALL_32B=yes ./setup-local-ai.sh
 
 show_help() {
@@ -26,18 +27,24 @@ Usage: setup-local-ai.sh [--help]
 
 Install/update Ollama and local models:
   - Ollama
-  - matching Ollama models (< 8 GB VRAM: llama3.2:3b + Qwen3 4B Instruct 2507)
+  - models selected automatically for CPU or NVIDIA GPU memory
 
 Environment:
+  MODEL_PROFILE=cpu|4gb|8gb|12gb|24gb  override automatic selection
   MODELS="qwen3:14b llama3.1:8b"  explicit model list
   INSTALL_32B=yes                  install qwen3:32b on a nominal 24 GB GPU
+
+MODELS takes priority over MODEL_PROFILE. CPU-only systems are detected automatically.
 
 Full stack:
   make install-ai
 
 Examples:
+  make install-ai
+  make install-ai MODEL_PROFILE=cpu
+  make install-ai MODELS="qwen3:14b"
   ./components/local-ai/setup-local-ai.sh
-  MODELS="qwen3:14b" ./components/local-ai/setup-local-ai.sh
+  MODEL_PROFILE=cpu ./components/local-ai/setup-local-ai.sh
   INSTALL_32B=yes ./components/local-ai/setup-local-ai.sh
 EOF
 }
@@ -50,6 +57,11 @@ fi
 INSTALL_32B="${INSTALL_32B:-no}"
 MODEL_GEMMA4_12B_MIN_VRAM_GB=11
 MODEL_32B_MIN_VRAM_GB=23
+CPU_MODELS=("qwen3:4b-instruct-2507-q4_K_M")
+VRAM4_MODELS=("llama3.2:3b" "${CPU_MODELS[@]}")
+VRAM8_MODELS=("llama3.1:8b" "qwen3:8b")
+VRAM12_ADDITIONS=("qwen3:14b" "gemma4:12b")
+VRAM24_OPTIONAL=("qwen3:32b")
 
 OLLAMA_LINK_DIR="${OLLAMA_LINK_DIR:-/usr/share/ollama}"
 OLLAMA_REAL_DIR="${OLLAMA_REAL_DIR:-$OLLAMA_LINK_DIR}"
@@ -130,6 +142,63 @@ ensure_ollama_service_models_env() {
   fi
 }
 
+select_models() {
+  local nvidia_smi_output vram_mb vram_gb
+
+  if [ -n "${MODELS+x}" ]; then
+    read -ra MODELS <<< "$MODELS"
+    echo "Model profile: custom (MODELS override)"
+  else
+    if [ -n "${MODEL_PROFILE+x}" ]; then
+      echo "Model profile: $MODEL_PROFILE (explicit MODEL_PROFILE)"
+    elif nvidia_smi_output=$(nvidia-smi 2>/dev/null); then
+      echo "$nvidia_smi_output"
+      if vram_mb=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null); then
+        vram_mb=${vram_mb%%$'\n'*}
+      fi
+      if [[ "${vram_mb:-}" =~ ^[0-9]+$ ]]; then
+        vram_gb=$((10#$vram_mb / 1024))
+        echo "NVIDIA VRAM detected: ${vram_gb} GB"
+        if [ "$vram_gb" -lt 8 ]; then
+          MODEL_PROFILE=4gb
+        elif [ "$vram_gb" -lt "$MODEL_GEMMA4_12B_MIN_VRAM_GB" ]; then
+          MODEL_PROFILE=8gb
+        elif [ "$vram_gb" -lt "$MODEL_32B_MIN_VRAM_GB" ]; then
+          MODEL_PROFILE=12gb
+        else
+          MODEL_PROFILE=24gb
+        fi
+      else
+        echo "NVIDIA VRAM could not be detected; using CPU profile."
+        MODEL_PROFILE=cpu
+      fi
+      echo "Model profile: $MODEL_PROFILE"
+    else
+      echo "No NVIDIA GPU detected."
+      MODEL_PROFILE=cpu
+      echo "Model profile: $MODEL_PROFILE"
+    fi
+
+    case "$MODEL_PROFILE" in
+      cpu) MODELS=("${CPU_MODELS[@]}") ;;
+      4gb) MODELS=("${VRAM4_MODELS[@]}") ;;
+      8gb) MODELS=("${VRAM8_MODELS[@]}") ;;
+      12gb|24gb)
+        MODELS=("${VRAM8_MODELS[@]}" "${VRAM12_ADDITIONS[@]}")
+        if [ "$MODEL_PROFILE" = 24gb ] && [ "$INSTALL_32B" = yes ]; then
+          MODELS+=("${VRAM24_OPTIONAL[@]}")
+        fi
+        ;;
+      *)
+        echo "ERROR: Invalid MODEL_PROFILE '$MODEL_PROFILE'. Valid profiles: cpu, 4gb, 8gb, 12gb, 24gb." >&2
+        return 1
+        ;;
+    esac
+  fi
+
+  echo "Models: ${MODELS[*]}"
+}
+
 if [ "${LLMFLASK_TEST_FUNCTIONS_ONLY:-}" = "1" ]; then
   return 0 2>/dev/null || exit 0
 fi
@@ -149,50 +218,7 @@ echo "== System Check =="
 command -v curl >/dev/null || { echo "ERROR: curl is missing"; exit 1; }
 command -v git >/dev/null || { echo "ERROR: git is missing"; exit 1; }
 
-if nvidia_smi_output=$(nvidia-smi 2>/dev/null); then
-  echo "$nvidia_smi_output"
-  VRAM_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
-  if [ -n "${VRAM_MB:-}" ]; then
-    VRAM_GB=$((VRAM_MB / 1024))
-  else
-    VRAM_GB=8
-  fi
-else
-  echo "WARNING: nvidia-smi not found, assuming 8 GB VRAM"
-  VRAM_GB=8
-fi
-echo "VRAM detected: ${VRAM_GB} GB"
-
-if [ -z "${MODELS+x}" ]; then
-  if [ "$VRAM_GB" -lt 8 ]; then
-    MODELS=(
-      "llama3.2:3b"
-      "qwen3:4b-instruct-2507-q4_K_M"
-    )
-  else
-    MODELS=(
-      "llama3.1:8b"
-      "qwen3:8b"
-    )
-
-    if [ "$VRAM_GB" -ge 11 ]; then
-      MODELS+=("qwen3:14b")
-    fi
-
-    if [ "$VRAM_GB" -ge "$MODEL_GEMMA4_12B_MIN_VRAM_GB" ]; then
-      MODELS+=("gemma4:12b")
-    fi
-
-    if [ "$INSTALL_32B" = "yes" ] && [ "$VRAM_GB" -ge "$MODEL_32B_MIN_VRAM_GB" ]; then
-      MODELS+=("qwen3:32b")
-    fi
-  fi
-else
-  # MODELS via Env gesetzt (String) -> in Array umwandeln
-  read -ra MODELS <<< "$MODELS"
-fi
-
-echo "Models: ${MODELS[*]}"
+select_models
 
 echo
 echo "== Ollama Install/Update =="
@@ -297,10 +323,13 @@ OpenCode:
 
     make install-opencode
 
-Standard (auto-detect from VRAM):
+Standard (auto-detect CPU or NVIDIA VRAM):
 
     make install-ai
-    # or: ./scripts/setup-local-ai.sh
+
+CPU profile explicitly (normally detected automatically):
+
+    make install-ai MODEL_PROFILE=cpu
 
 Specify models manually:
 
@@ -314,6 +343,7 @@ Check for new model versions:
   https://ollama.com/search
 
 VRAM recommendations:
+- CPU:   qwen3:4b-instruct-2507-q4_K_M
 - 4 GB:  llama3.2:3b + qwen3:4b-instruct-2507-q4_K_M (~2.5 GB), context 2048 for speed
 - 8 GB:  llama3.1:8b + qwen3:8b, context 4096 for speed
 - 12 GB: 8B with context 8192; qwen3:14b + gemma4:12b as quality tests

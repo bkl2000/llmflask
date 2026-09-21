@@ -183,10 +183,10 @@ Compatibility checks use those capabilities instead of rejecting an otherwise
 usable system merely because its distribution version is newer than the ones
 already tested.
 
-An NVIDIA GPU is optional. Without `nvidia-smi`, the model installer uses a
-conservative 8 GB selection; local inference can still run on the CPU, but it
-will usually be slower. With less than 8 GB of GPU memory the installer
-automatically selects small models (`ollama/llama3.2:3b`,
+An NVIDIA GPU is optional. Without one, `make install-ai` automatically uses
+the CPU profile and installs only `ollama/qwen3:4b-instruct-2507-q4_K_M`.
+Local inference on the CPU will usually be slower. With less than 8 GB of GPU
+memory the installer automatically selects small models (`ollama/llama3.2:3b`,
 `ollama/qwen3:4b-instruct-2507-q4_K_M`). The pinned Qwen model is the Q4_K_M
 build of Qwen3-4B-Instruct-2507 (about 2.5 GB). At 8 GB the normal Qwen choice
 remains `ollama/qwen3:8b`; a 12 GB card also adds `ollama/qwen3:14b` and
@@ -249,6 +249,19 @@ make install-server
 installer. The scripts are idempotent, so running the command again updates or
 verifies the installation while preserving models and persistent data. It
 reuses the LLMFlask environment and binary already created by `make all`.
+
+To install local models with automatic CPU or NVIDIA GPU selection, run
+`make install-ai`. You can choose the CPU profile explicitly or supply an
+expert model list instead:
+
+```bash
+make install-ai
+make install-ai MODEL_PROFILE=cpu
+make install-ai MODELS="qwen3:14b"
+```
+
+The CPU profile is selected automatically on CPU-only systems, so the second
+command is normally unnecessary. `MODELS` takes priority over `MODEL_PROFILE`.
 
 To rebuild and reinstall only the standalone after source changes:
 

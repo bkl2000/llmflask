@@ -294,173 +294,130 @@ load test_helper
   [ "$status" -eq 0 ]
 }
 
-@test "VRAM 4 GB -> nur kleine Modelle" {
+run_model_selection() {
   run bash -c '
-    VRAM_GB=4
-    if [ "$VRAM_GB" -lt 8 ]; then
-      MODELS=("llama3.2:3b" "qwen3:4b-instruct-2507-q4_K_M")
-    else
-      MODELS=("llama3.1:8b" "qwen3:8b")
-      if [ "$VRAM_GB" -ge 11 ]; then
-        MODELS+=("qwen3:14b")
-      fi
-      if [ "$VRAM_GB" -ge 11 ]; then
-        MODELS+=("gemma4:12b")
-      fi
-    fi
-    echo "Modelle: ${MODELS[*]}"
-    echo "Anzahl: ${#MODELS[@]}"
-    [[ "${MODELS[*]}" =~ "llama3.2:3b" ]]
-    [[ "${MODELS[*]}" =~ "qwen3:4b-instruct-2507-q4_K_M" ]]
+    export LLMFLASK_TEST_FUNCTIONS_ONLY=1
+    nvidia-smi() {
+      [ -n "${MOCK_NVIDIA_VRAM_MB:-}" ] || return 1
+      case "${1:-}" in
+        --query-gpu=memory.total) printf "%s\\n" "$MOCK_NVIDIA_VRAM_MB" ;;
+        *) echo "NVIDIA GPU" ;;
+      esac
+    }
+    source components/local-ai/setup-local-ai.sh
+    select_models
+    printf "Selected: %s\\n" "${MODELS[*]}"
   '
-  [ "$status" -eq 0 ]
-  [[ "$output" =~ "Anzahl: 2" ]]
 }
 
-@test "Installer pins current model tiers and full-GPU 32B threshold" {
-  run bash -c '
-    script=components/local-ai/setup-local-ai.sh
-    grep -qF "qwen3:4b-instruct-2507-q4_K_M" "$script"
-    grep -qF "qwen3:8b" "$script"
-    grep -qF "qwen3:14b" "$script"
-    grep -qF "gemma4:12b" "$script"
-    grep -qF "MODEL_GEMMA4_12B_MIN_VRAM_GB=11" "$script"
-    grep -qF "MODEL_32B_MIN_VRAM_GB=23" "$script"
-    ! grep -qF "qwen3:1.7b" "$script"
-    ! grep -qF "qwen3:latest" "$script"
-  '
+@test "No NVIDIA GPU selects only the CPU model" {
+  run_model_selection
   [ "$status" -eq 0 ]
+  [[ "$output" == *"No NVIDIA GPU detected."* ]]
+  [[ "$output" == *"Model profile: cpu"* ]]
+  [[ "$output" == *"Selected: qwen3:4b-instruct-2507-q4_K_M"* ]]
+  [[ "$output" != *"assuming 8 GB"* ]]
 }
 
-@test "Automatische Modellauswahl deckt 8 GB, 12 GB, 24 GB und Override ab" {
-  run bash -c '
-    script=components/local-ai/setup-local-ai.sh
-    selection=$(sed -n '\''/^if \[ -z "${MODELS+x}" \]; then$/,/^echo "Models:/p'\'' "$script" | sed '\''$d'\'')
-    MODEL_GEMMA4_12B_MIN_VRAM_GB=11
-    MODEL_32B_MIN_VRAM_GB=23
-    INSTALL_32B=no
-
-    unset MODELS
-    VRAM_GB=8
-    eval "$selection"
-    [ "${MODELS[*]}" = "llama3.1:8b qwen3:8b" ]
-
-    unset MODELS
-    VRAM_MB=12282
-    VRAM_GB=$((VRAM_MB / 1024))
-    eval "$selection"
-    [ "$VRAM_GB" -eq 11 ]
-    [ "${MODELS[*]}" = "llama3.1:8b qwen3:8b qwen3:14b gemma4:12b" ]
-
-    unset MODELS
-    VRAM_GB=24
-    eval "$selection"
-    [ "${MODELS[*]}" = "llama3.1:8b qwen3:8b qwen3:14b gemma4:12b" ]
-
-    MODELS="override:first override:second"
-    VRAM_GB=24
-    eval "$selection"
-    [ "${MODELS[*]}" = "override:first override:second" ]
-  '
+@test "Under 8 GB keeps the small GPU models" {
+  export MOCK_NVIDIA_VRAM_MB=4096
+  run_model_selection
   [ "$status" -eq 0 ]
+  [[ "$output" == *"NVIDIA VRAM detected: 4 GB"* ]]
+  [[ "$output" == *"Model profile: 4gb"* ]]
+  [[ "$output" == *"Selected: llama3.2:3b qwen3:4b-instruct-2507-q4_K_M"* ]]
 }
 
-@test "VRAM 8 GB -> nur Basis-Modelle" {
-  run bash -c '
-    VRAM_GB=8
-    MODELS=("llama3.1:8b" "qwen3:8b")
-    if [ "$VRAM_GB" -ge 11 ]; then
-      MODELS+=("qwen3:14b")
-    fi
-    if [ "$VRAM_GB" -ge 11 ]; then
-      MODELS+=("gemma4:12b")
-    fi
-    echo "Modelle: ${MODELS[*]}"
-    echo "Anzahl: ${#MODELS[@]}"
-  '
+@test "8 GB keeps the existing 8 GB models" {
+  export MOCK_NVIDIA_VRAM_MB=8192
+  run_model_selection
   [ "$status" -eq 0 ]
-  [[ "$output" =~ "Anzahl: 2" ]]
+  [[ "$output" == *"Model profile: 8gb"* ]]
+  [[ "$output" == *"Selected: llama3.1:8b qwen3:8b"* ]]
 }
 
-@test "Typische 12-GB-GPU wird trotz MiB-Rundung als Gemma-12B-Klasse erkannt" {
-  run bash -c '
-    VRAM_MB=12282
-    VRAM_GB=$((VRAM_MB / 1024))
-    MODELS=("llama3.1:8b" "qwen3:8b")
-    if [ "$VRAM_GB" -ge 11 ]; then
-      MODELS+=("qwen3:14b")
-    fi
-    if [ "$VRAM_GB" -ge 11 ]; then
-      MODELS+=("gemma4:12b")
-    fi
-    echo "Modelle: ${MODELS[*]}"
-    echo "Anzahl: ${#MODELS[@]}"
-    [ "$VRAM_GB" -eq 11 ]
-    [[ "${MODELS[*]}" =~ "qwen3:14b" ]]
-    [[ "${MODELS[*]}" =~ "gemma4:12b" ]]
-  '
+@test "Nominal 12 GB adds both larger models at 11 GiB detected" {
+  export MOCK_NVIDIA_VRAM_MB=12282
+  run_model_selection
   [ "$status" -eq 0 ]
-  [[ "$output" =~ "Anzahl: 4" ]]
+  [[ "$output" == *"NVIDIA VRAM detected: 11 GB"* ]]
+  [[ "$output" == *"Model profile: 12gb"* ]]
+  [[ "$output" == *"Selected: llama3.1:8b qwen3:8b qwen3:14b gemma4:12b"* ]]
 }
 
-@test "INSTALL_32B=yes + 23 GiB detected -> + 32b" {
-  run bash -c '
-    INSTALL_32B=yes
-    MODEL_32B_MIN_VRAM_GB=23
-    VRAM_GB=23
-    MODELS=("llama3.1:8b" "qwen3:8b")
-    if [ "$VRAM_GB" -ge 11 ]; then
-      MODELS+=("qwen3:14b")
-    fi
-    if [ "$VRAM_GB" -ge 11 ]; then
-      MODELS+=("gemma4:12b")
-    fi
-    if [ "$INSTALL_32B" = "yes" ] && [ "$VRAM_GB" -ge "$MODEL_32B_MIN_VRAM_GB" ]; then
-      MODELS+=("qwen3:32b")
-    fi
-    echo "Modelle: ${MODELS[*]}"
-    echo "Anzahl: ${#MODELS[@]}"
-  '
+@test "Explicit CPU profile overrides NVIDIA detection" {
+  export MOCK_NVIDIA_VRAM_MB=24576 MODEL_PROFILE=cpu
+  run_model_selection
   [ "$status" -eq 0 ]
-  [[ "$output" =~ "Anzahl: 5" ]]
+  [[ "$output" == *"Model profile: cpu (explicit MODEL_PROFILE)"* ]]
+  [[ "$output" == *"Selected: qwen3:4b-instruct-2507-q4_K_M"* ]]
 }
 
-@test "INSTALL_32B=yes + 16 GB -> kein 32b" {
-  run bash -c '
-    INSTALL_32B=yes
-    MODEL_32B_MIN_VRAM_GB=23
-    VRAM_GB=16
-    MODELS=("llama3.1:8b" "qwen3:8b")
-    if [ "$VRAM_GB" -ge 11 ]; then
-      MODELS+=("qwen3:14b")
-    fi
-    if [ "$VRAM_GB" -ge 11 ]; then
-      MODELS+=("gemma4:12b")
-    fi
-    if [ "$INSTALL_32B" = "yes" ] && [ "$VRAM_GB" -ge "$MODEL_32B_MIN_VRAM_GB" ]; then
-      MODELS+=("qwen3:32b")
-    fi
-    echo "Modelle: ${MODELS[*]}"
-    echo "Anzahl: ${#MODELS[@]}"
-    [[ ! "${MODELS[*]}" =~ "qwen3:32b" ]]
-  '
+@test "Explicit GPU profiles use their model sets" {
+  export MODEL_PROFILE=4gb
+  run_model_selection
   [ "$status" -eq 0 ]
-  [[ "$output" =~ "Anzahl: 4" ]]
+  [[ "$output" == *"Selected: llama3.2:3b qwen3:4b-instruct-2507-q4_K_M"* ]]
+
+  export MODEL_PROFILE=8gb
+  run_model_selection
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Selected: llama3.1:8b qwen3:8b"* ]]
+
+  export MODEL_PROFILE=12gb
+  run_model_selection
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Selected: llama3.1:8b qwen3:8b qwen3:14b gemma4:12b"* ]]
 }
 
-@test "MODELS via Env (String) wird in Array umgewandelt" {
-  run bash -c '
-    MODELS="llama3.1:8b qwen3:14b qwen3:8b"
-    read -ra MODELS <<< "$MODELS"
-    echo "Modelle: ${MODELS[*]}"
-    echo "Anzahl: ${#MODELS[@]}"
-    for m in "${MODELS[@]}"; do echo "  - $m"; done
-  '
+@test "Unavailable NVIDIA VRAM uses the CPU profile" {
+  export MOCK_NVIDIA_VRAM_MB=unknown
+  run_model_selection
   [ "$status" -eq 0 ]
-  [[ "$output" =~ "Anzahl: 3" ]]
-  [[ "$output" =~ "llama3.1:8b" ]]
-  [[ "$output" =~ "qwen3:14b" ]]
-  [[ ! "$output" =~ "gemma4:12b" ]]
+  [[ "$output" == *"NVIDIA VRAM could not be detected; using CPU profile."* ]]
+  [[ "$output" == *"Selected: qwen3:4b-instruct-2507-q4_K_M"* ]]
+}
+
+@test "Explicit MODELS overrides MODEL_PROFILE" {
+  export MODEL_PROFILE=cpu MODELS="override:first override:second"
+  run_model_selection
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Model profile: custom (MODELS override)"* ]]
+  [[ "$output" == *"Selected: override:first override:second"* ]]
+}
+
+@test "Invalid MODEL_PROFILE fails before installation" {
+  export MODEL_PROFILE=unknown
+  run_model_selection
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Invalid MODEL_PROFILE 'unknown'"* ]]
+  [[ "$output" == *"Valid profiles: cpu, 4gb, 8gb, 12gb, 24gb."* ]]
+}
+
+@test "32B remains opt-in at 23 GiB detected" {
+  export MOCK_NVIDIA_VRAM_MB=23552 INSTALL_32B=yes
+  run_model_selection
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Model profile: 24gb"* ]]
+  [[ "$output" == *"Selected: llama3.1:8b qwen3:8b qwen3:14b gemma4:12b qwen3:32b"* ]]
+
+  export MOCK_NVIDIA_VRAM_MB=16384
+  run_model_selection
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Selected: llama3.1:8b qwen3:8b qwen3:14b gemma4:12b"* ]]
+
+  export MOCK_NVIDIA_VRAM_MB=23552 INSTALL_32B=no
+  run_model_selection
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Selected: llama3.1:8b qwen3:8b qwen3:14b gemma4:12b"* ]]
+}
+
+@test "Explicit 24 GB profile permits opt-in 32B" {
+  export MODEL_PROFILE=24gb INSTALL_32B=yes
+  run_model_selection
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Model profile: 24gb (explicit MODEL_PROFILE)"* ]]
+  [[ "$output" == *"Selected: llama3.1:8b qwen3:8b qwen3:14b gemma4:12b qwen3:32b"* ]]
 }
 
 @test "User not in ollama group -> usermod called" {

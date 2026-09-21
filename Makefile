@@ -20,6 +20,7 @@ help:
 	@echo "  For server:"
 	@echo "  make install-server  AI stack + sandbox image + LLMFlask venv (needs Docker)"
 	@echo "  make install-ai      Full AI stack (Docker for SearXNG/sandbox, not Ollama)"
+	@echo "                       Auto-selects CPU or NVIDIA GPU models; MODEL_PROFILE=cpu overrides"
 	@echo "  make install-ai-minimal  Ollama + llama3.2:3b only (quick test, no SearXNG/OpenCode/sandbox)"
 	@echo ""
 	@echo "  For client:"
