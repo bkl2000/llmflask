@@ -359,6 +359,8 @@ llmflask --tui --host 127.0.0.1 --user alice
 Useful keys include `Ctrl+N` for a new chat, `Ctrl+E` to export Markdown,
 `Ctrl+S` to toggle search, `Ctrl+P` to open the model list (Up/Down, Enter to
 select, Esc to cancel), and `Tab` to move between the chat and session list.
+Terminal bracketed paste keeps multiline text in one input; `↵` and `⇥` mark
+embedded newlines and tabs on screen. Press Enter to send the whole message.
 Run with `--tui-trace` only when debugging; tracing
 is off by default and writes under `/tmp`.
 

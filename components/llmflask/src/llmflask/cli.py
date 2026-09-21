@@ -8,6 +8,8 @@ import os
 import re
 import signal
 import threading
+import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlencode
@@ -64,6 +66,18 @@ from .tui.state import (
     SCROLL_PAGE_STEP,
     TuiState,
 )
+
+
+_PASTE_START = "\x1b[200~"
+_PASTE_END = "\x1b[201~"
+_PASTE_IDLE_TIMEOUT_MS = 2000
+_PASTE_DEADLINE_SECONDS = 10
+
+
+@dataclass(repr=False)
+class _TuiPaste:
+    text: str
+    complete: bool = True
 
 
 def _setup_locale():
@@ -247,6 +261,14 @@ def _current_model_label(state: TuiState) -> str:
         if model.get("name") == state.current_model:
             return model.get("label") or state.current_model
     return state.current_model
+
+
+def _input_display_char(char: str) -> str:
+    if char == "\n":
+        return "↵"
+    if char == "\t":
+        return "⇥"
+    return char if char.isprintable() else "?"
 
 
 def _ensure_user(state: TuiState):
@@ -589,7 +611,10 @@ def draw(stdscr, state):
     input_start = 0
     if state.input_cursor > input_width:
         input_start = state.input_cursor - input_width
-    visible_input = state.input_text[input_start:input_start + input_width]
+    visible_input = "".join(
+        _input_display_char(char)
+        for char in state.input_text[input_start:input_start + input_width]
+    )
     attr = curses.A_REVERSE if state.focus == FOCUS_INPUT else curses.A_NORMAL
     stdscr.addstr(h - 1, 0, f"{prompt}{visible_input}"[:w - 1], attr)
 
@@ -855,16 +880,52 @@ def _read_tui_key(stdscr):
                 sequence.append(stdscr.get_wch())
             except curses.error:
                 break
+        if "".join(part for part in sequence if isinstance(part, str)) == _PASTE_START[:4]:
+            for _ in range(2):
+                try:
+                    sequence.append(stdscr.get_wch())
+                except curses.error:
+                    break
     finally:
         if restore_input_mode is not None:
             restore_input_mode()
 
     joined = "".join(part for part in sequence if isinstance(part, str))
+    if joined == _PASTE_START:
+        return _read_tui_paste(stdscr)
     if joined == KEY_PAGE_UP_SEQUENCE:
         return KEY_PAGE_UP_SEQUENCE
     if joined == KEY_PAGE_DOWN_SEQUENCE:
         return KEY_PAGE_DOWN_SEQUENCE
     return ch
+
+
+def _read_tui_paste(stdscr) -> _TuiPaste:
+    def result(chars: list[str], complete: bool) -> _TuiPaste:
+        return _TuiPaste("".join(chars).replace("\r\n", "\n").replace("\r", "\n"), complete)
+
+    content: list[str] = []
+    stdscr.keypad(False)
+    deadline = time.monotonic() + _PASTE_DEADLINE_SECONDS
+    try:
+        while True:
+            remaining_ms = int((deadline - time.monotonic()) * 1000)
+            if remaining_ms <= 0:
+                return result(content, False)
+            stdscr.timeout(min(_PASTE_IDLE_TIMEOUT_MS, remaining_ms))
+            try:
+                ch = stdscr.get_wch()
+            except curses.error:
+                # The end marker may be lost or transformed by a terminal.
+                return result(content, False)
+            if isinstance(ch, int):
+                ch = "\n" if ch == curses.KEY_ENTER else chr(ch) if 0 <= ch <= 255 else ""
+            content.append(ch)
+            if "".join(content[-len(_PASTE_END):]) == _PASTE_END:
+                return result(content[:-len(_PASTE_END)], True)
+    finally:
+        stdscr.timeout(-1)
+        stdscr.keypad(True)
 
 
 CONTROL_INPUT = {
@@ -962,7 +1023,17 @@ def _handle_session_key(state: TuiState, code: int) -> str:
     return "noop_sessions"
 
 
-def _handle_key(state: TuiState, ch: int | str) -> str | None:
+def _handle_key(state: TuiState, ch: int | str | _TuiPaste) -> str | None:
+    if isinstance(ch, _TuiPaste):
+        if state.focus == FOCUS_INPUT and state.model_selector_index is None and not state.streaming:
+            state.input_text = (
+                state.input_text[:state.input_cursor] + ch.text + state.input_text[state.input_cursor:]
+            )
+            state.input_cursor += len(ch.text)
+            if not ch.complete:
+                state.error = "Paste ended without a terminal end marker. Check the input before sending."
+            _trace_event("key_action", state, action="paste", input_len=len(ch.text))
+        return None
     code, char = _normalize_ch(ch)
     before = {
         "before_focus": state.focus,
@@ -1034,13 +1105,22 @@ def _restore_terminal():
         signal.signal(signal.SIGINT, old_handler)
 
 
+def _set_bracketed_paste(enabled: bool) -> None:
+    try:
+        os.write(1, b"\x1b[?2004h" if enabled else b"\x1b[?2004l")
+    except OSError:
+        pass
+
+
 def _run_curses(main_loop):
     stdscr = None
     try:
         stdscr = curses.initscr()
         curses.noecho()
         curses.cbreak()
+        curses.nonl()
         stdscr.keypad(True)
+        _set_bracketed_paste(True)
         try:
             curses.start_color()
         except BaseException:
@@ -1048,6 +1128,7 @@ def _run_curses(main_loop):
         return main_loop(stdscr)
     finally:
         if stdscr is not None:
+            _set_bracketed_paste(False)
             try:
                 stdscr.keypad(False)
             except BaseException:
@@ -1081,11 +1162,14 @@ def run_tui(
             state.error = f"Trace: {_tui_trace_path()}"
         _trace_event("tui_start", state, host=host, port=port, term=os.environ.get("TERM", ""))
 
+        last_ui_error = None
         while True:
+            stage = "draw"
             try:
                 if state.streaming:
                     stdscr.nodelay(True)
                 draw(stdscr, state)
+                stage = "read_key"
                 try:
                     ch = _read_tui_key(stdscr)
                 except KeyboardInterrupt:
@@ -1097,7 +1181,12 @@ def run_tui(
                     stdscr.nodelay(False)
             except Exception as e:
                 state.error = f"UI: {e}"
+                error_detail = (stage, type(e).__name__, str(e))
+                if error_detail != last_ui_error:
+                    _trace_event("ui_error", state, stage=stage, error_type=type(e).__name__, error=str(e))
+                    last_ui_error = error_detail
                 continue
+            last_ui_error = None
 
             read_code, read_char = _normalize_ch(ch)
             _trace_event(

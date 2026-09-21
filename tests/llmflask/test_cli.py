@@ -1511,6 +1511,144 @@ def test_input_inserts_text_at_cursor():
     assert state.input_cursor == 2
 
 
+def test_enter_sends_complete_input_after_bracketed_paste(monkeypatch):
+    from llmflask import cli
+
+    sent = []
+    monkeypatch.setattr(cli, "_send_message", lambda state: sent.append(state.input_text))
+    state = cli.TuiState("x", 1, "testuser")
+
+    class MockScreen:
+        def __init__(self):
+            self.keys = list("\x1b[200~first line\r\nsecond line\rthird line\x1b[201~")
+            self.keypad_calls = []
+
+        def get_wch(self):
+            return self.keys.pop(0)
+
+        def timeout(self, value):
+            pass
+
+        def keypad(self, enabled):
+            self.keypad_calls.append(enabled)
+
+    screen = MockScreen()
+    paste = cli._read_tui_key(screen)
+    assert isinstance(paste, cli._TuiPaste)
+    assert cli._handle_key(state, paste) is None
+    assert state.input_text == "first line\nsecond line\nthird line"
+    assert state.input_cursor == len(state.input_text)
+    assert sent == []
+    assert screen.keypad_calls == [False, True]
+
+    cli._handle_key(state, 10)
+    assert sent == ["first line\nsecond line\nthird line"]
+
+
+def test_bracketed_paste_recovers_when_end_marker_is_missing(monkeypatch):
+    from llmflask import cli
+
+    sent = []
+    monkeypatch.setattr(cli, "_send_message", lambda state: sent.append(state.input_text))
+
+    class MockScreen:
+        def __init__(self):
+            self.keys = list("\x1b[200~first\nsecond")
+            self.timeouts = []
+            self.keypad_calls = []
+
+        def get_wch(self):
+            if not self.keys:
+                raise cli.curses.error("read timed out")
+            return self.keys.pop(0)
+
+        def timeout(self, value):
+            self.timeouts.append(value)
+
+        def keypad(self, enabled):
+            self.keypad_calls.append(enabled)
+
+    screen = MockScreen()
+    paste = cli._read_tui_key(screen)
+    assert isinstance(paste, cli._TuiPaste)
+    assert paste.text == "first\nsecond"
+    assert paste.complete is False
+    assert screen.timeouts[:2] == [25, -1]
+    assert all(0 < value <= cli._PASTE_IDLE_TIMEOUT_MS for value in screen.timeouts[2:-1])
+    assert screen.timeouts[-1] == -1
+    assert screen.keypad_calls == [False, True]
+
+    state = cli.TuiState("x", 1, "testuser")
+    cli._handle_key(state, paste)
+    assert state.input_text == "first\nsecond"
+    assert state.input_cursor == len(state.input_text)
+    assert "without a terminal end marker" in state.error
+    assert sent == []
+
+
+def test_bracketed_paste_has_total_deadline_even_with_continuous_input(monkeypatch):
+    from llmflask import cli
+
+    ticks = iter(range(100))
+    monkeypatch.setattr(cli.time, "monotonic", lambda: next(ticks))
+
+    class MockScreen:
+        def __init__(self):
+            self.reads = 0
+            self.timeouts = []
+            self.keypad_calls = []
+
+        def get_wch(self):
+            self.reads += 1
+            return "a"
+
+        def timeout(self, value):
+            self.timeouts.append(value)
+
+        def keypad(self, enabled):
+            self.keypad_calls.append(enabled)
+
+    screen = MockScreen()
+    paste = cli._read_tui_paste(screen)
+    assert paste.text == "a" * 9
+    assert paste.complete is False
+    assert screen.reads == 9
+    assert screen.timeouts[-1] == -1
+    assert screen.keypad_calls == [False, True]
+
+
+def test_bracketed_paste_inserts_at_cursor_and_keeps_editing(monkeypatch):
+    from llmflask import cli
+
+    sent = []
+    monkeypatch.setattr(cli, "_send_message", lambda state: sent.append(state.input_text))
+    state = cli.TuiState("x", 1, "testuser")
+    state.input_text = "beforeafter"
+    state.input_cursor = 6
+
+    cli._handle_key(state, cli._TuiPaste("one\ntwo"))
+    assert state.input_text == "beforeone\ntwoafter"
+    assert state.input_cursor == 13
+    assert sent == []
+
+    cli._handle_key(state, "!")
+    assert state.input_text == "beforeone\ntwo!after"
+    assert state.input_cursor == 14
+
+
+def test_plain_enter_still_sends(monkeypatch):
+    from llmflask import cli
+
+    sent = []
+    monkeypatch.setattr(cli, "_send_message", lambda state: sent.append(state.input_text))
+    state = cli.TuiState("x", 1, "testuser")
+    state.input_text = "hello"
+    cli._handle_key(state, cli.curses.KEY_ENTER)
+    assert sent == ["hello"]
+    cli._handle_key(state, 13)
+    assert sent == ["hello", "hello"]
+
+
 def test_backspace_deletes_before_cursor():
     from llmflask import cli
     from llmflask.cli import TuiState
@@ -1584,6 +1722,27 @@ def test_read_tui_key_consumes_unknown_escape_sequence_without_polluting_input()
     assert ch == "\x1b"
     assert cli._handle_key(state, ch) is None
     assert state.input_text == "hello"
+
+
+def test_read_tui_key_keeps_escape_and_page_keys():
+    from llmflask import cli
+
+    class MockScreen:
+        def __init__(self, keys):
+            self.keys = list(keys)
+
+        def get_wch(self):
+            if not self.keys:
+                raise cli.curses.error
+            return self.keys.pop(0)
+
+        def timeout(self, value):
+            pass
+
+    assert cli._read_tui_key(MockScreen("\x1b")) == "\x1b"
+    assert cli._read_tui_key(MockScreen("\x1b[5~")) == "\x1b[5~"
+    assert cli._read_tui_key(MockScreen("\x1b[6~")) == "\x1b[6~"
+    assert cli._read_tui_key(MockScreen([cli.curses.KEY_LEFT])) == cli.curses.KEY_LEFT
 
 
 def test_page_keys_scroll_in_sessions_focus(monkeypatch):
@@ -1986,6 +2145,108 @@ def test_draw_positions_input_cursor(monkeypatch):
     assert screen.moves[-1] == (9, 4)
 
 
+def test_draw_replaces_input_newlines_with_visible_marker(monkeypatch):
+    import curses
+    from llmflask.cli import TuiState, draw
+
+    for name in ("ACS_VLINE", "ACS_HLINE", "A_NORMAL", "A_BOLD", "A_REVERSE"):
+        monkeypatch.setattr(curses, name, 0, raising=False)
+
+    state = TuiState("x", 1, "testuser")
+    state.input_text = "one\ntwo"
+    state.input_cursor = len(state.input_text)
+
+    class MockScreen:
+        def __init__(self):
+            self.lines = []
+            self.moves = []
+
+        def getmaxyx(self):
+            return (10, 80)
+
+        def erase(self):
+            pass
+
+        def refresh(self):
+            pass
+
+        def addch(self, *args):
+            pass
+
+        def addstr(self, y, x, text, *args):
+            if y == 9:
+                self.lines.append(text)
+
+        def hline(self, *args):
+            pass
+
+        def move(self, *args):
+            self.moves.append(args)
+
+    screen = MockScreen()
+    draw(screen, state)
+    assert screen.lines == ["> one↵two"]
+    assert "\n" not in screen.lines[0]
+    assert state.input_text == "one\ntwo"
+    assert screen.moves[-1] == (9, 9)
+
+
+def test_draw_sanitizes_multiline_pasted_source_with_tabs(monkeypatch):
+    import curses
+    from llmflask import cli
+
+    for name in ("ACS_VLINE", "ACS_HLINE", "A_NORMAL", "A_BOLD", "A_REVERSE"):
+        monkeypatch.setattr(curses, name, 0, raising=False)
+
+    source = "sub f {\n\t$x++;\n\tprint $x;\t\x1b\r}"
+    state = cli.TuiState("x", 1, "testuser")
+    cli._handle_key(state, cli._TuiPaste(source))
+
+    class MockScreen:
+        def __init__(self):
+            self.input_line = ""
+            self.moves = []
+
+        def getmaxyx(self):
+            return (10, 30)
+
+        def erase(self):
+            pass
+
+        def refresh(self):
+            pass
+
+        def addch(self, *args):
+            pass
+
+        def addstr(self, y, x, text, *args):
+            if y == 9:
+                if any(char in text for char in "\n\t\r\x1b") or len(text.expandtabs(8)) > 29:
+                    raise curses.error("input wrapped off screen")
+                self.input_line = text
+
+        def hline(self, *args):
+            pass
+
+        def move(self, *args):
+            self.moves.append(args)
+
+    screen = MockScreen()
+    cli.draw(screen, state)
+
+    assert "↵" in screen.input_line
+    assert "⇥" in screen.input_line
+    assert "?" in screen.input_line
+    assert state.input_text == source
+    assert state.input_cursor == len(source)
+    assert screen.moves[-1] == (9, 29)
+
+    sent = []
+    monkeypatch.setattr(cli, "_send_message", lambda current: sent.append(current.input_text))
+    cli._handle_key(state, 13)
+    assert sent == [source]
+
+
 def test_draw_keeps_long_input_cursor_visible(monkeypatch):
     import curses
     from llmflask.cli import TuiState, draw
@@ -2090,6 +2351,39 @@ def test_trace_event_swallows_write_errors(monkeypatch):
     state.trace_enabled = True
 
     cli._trace_event("test_event", state)
+
+
+def test_run_tui_traces_draw_exception_before_retry(monkeypatch):
+    from llmflask import cli
+
+    events = []
+    draws = []
+
+    class MockScreen:
+        def nodelay(self, enabled):
+            pass
+
+    def draw_once_then_succeed(stdscr, state):
+        draws.append(None)
+        if len(draws) == 1:
+            raise cli.curses.error("addwstr returned ERR")
+
+    monkeypatch.setattr(cli.atexit, "register", lambda callback: None)
+    monkeypatch.setattr(cli, "_setup_locale", lambda: None)
+    monkeypatch.setattr(cli.os, "system", lambda command: 0)
+    monkeypatch.setattr(cli.curses, "curs_set", lambda value: None)
+    for name in ("_load_models", "_ensure_user", "_load_sessions", "_open_initial_session"):
+        monkeypatch.setattr(cli, name, lambda state: None)
+    monkeypatch.setattr(cli, "draw", draw_once_then_succeed)
+    monkeypatch.setattr(cli, "_read_tui_key", lambda stdscr: 3)
+    monkeypatch.setattr(cli, "_run_curses", lambda main_loop: main_loop(MockScreen()))
+    monkeypatch.setattr(cli, "_trace_event", lambda event, state, **fields: events.append((event, fields)))
+
+    cli.run_tui(trace=True)
+
+    errors = [fields for event, fields in events if event == "ui_error"]
+    assert errors == [{"stage": "draw", "error_type": "error", "error": "addwstr returned ERR"}]
+    assert len(draws) == 2
 
 
 def test_handle_key_traces_page_actions(monkeypatch, tmp_path):
@@ -2243,6 +2537,18 @@ def test_restore_terminal_swallows_keyboard_interrupt(monkeypatch):
     assert "stty sane" in calls[-1]
 
 
+def test_bracketed_paste_terminal_sequences(monkeypatch):
+    from llmflask import cli
+
+    writes = []
+    monkeypatch.setattr(cli.os, "write", lambda fd, data: writes.append((fd, data)))
+
+    cli._set_bracketed_paste(True)
+    cli._set_bracketed_paste(False)
+
+    assert writes == [(1, b"\x1b[?2004h"), (1, b"\x1b[?2004l")]
+
+
 def test_run_curses_cleans_up_when_main_loop_interrupts(monkeypatch):
     from llmflask import cli
 
@@ -2255,7 +2561,9 @@ def test_run_curses_cleans_up_when_main_loop_interrupts(monkeypatch):
     monkeypatch.setattr(cli.curses, "initscr", lambda: MockScreen())
     monkeypatch.setattr(cli.curses, "noecho", lambda: calls.append("noecho"))
     monkeypatch.setattr(cli.curses, "cbreak", lambda: calls.append("cbreak"))
+    monkeypatch.setattr(cli.curses, "nonl", lambda: calls.append("nonl"))
     monkeypatch.setattr(cli.curses, "start_color", lambda: calls.append("start_color"))
+    monkeypatch.setattr(cli, "_set_bracketed_paste", lambda enabled: calls.append(("paste", enabled)))
     monkeypatch.setattr(cli, "_restore_terminal", lambda: calls.append("restore"))
 
     def main_loop(stdscr):
@@ -2270,9 +2578,12 @@ def test_run_curses_cleans_up_when_main_loop_interrupts(monkeypatch):
     assert calls == [
         "noecho",
         "cbreak",
+        "nonl",
         ("keypad", True),
+        ("paste", True),
         "start_color",
         "main",
+        ("paste", False),
         ("keypad", False),
         "restore",
     ]
