@@ -74,6 +74,7 @@ services:
       - ./searxng:/etc/searxng:rw
     environment:
       - SEARXNG_BASE_URL=http://localhost:${SEARXNG_PORT}/
+      - GRANIAN_HOST=0.0.0.0
 EOF
 
 $COMPOSE pull
