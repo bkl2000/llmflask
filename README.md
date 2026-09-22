@@ -184,14 +184,13 @@ usable system merely because its distribution version is newer than the ones
 already tested.
 
 An NVIDIA GPU is optional. Without one, `make install-ai` automatically uses
-the CPU profile and installs only `ollama/qwen3:4b-instruct-2507-q4_K_M`.
-Local inference on the CPU will usually be slower. With less than 8 GB of GPU
-memory the installer automatically selects small models (`ollama/llama3.2:3b`,
-`ollama/qwen3:4b-instruct-2507-q4_K_M`). The pinned Qwen model is the Q4_K_M
-build of Qwen3-4B-Instruct-2507 (about 2.5 GB). At 8 GB the normal Qwen choice
-remains `ollama/qwen3:8b`; a 12 GB card also adds `ollama/qwen3:14b` and
-`ollama/gemma4:12b` as capacity-oriented quality options. The optional
-`qwen3:32b` selection requires at least 24 GB for full-GPU use.
+the `cpu` profile; local inference on the CPU will usually be slower. NVIDIA
+cards select `4gb` below 8 GiB, `8gb` from 8 to under 11 GiB, `12gb` from 11
+to under 23 GiB, and `24gb` above that. The `12gb` and `24gb` profiles add
+larger models to the `8gb` set; `INSTALL_32B=yes` adds the optional 32B model
+only to `24gb`. `components/local-ai/model-profiles.sh` lists the exact model
+tags for every profile. `minimal` is the single small model used by `make all`
+and `make install-ai-minimal`.
 
 Clone the public GitHub repository:
 
@@ -202,7 +201,7 @@ make all
 ```
 
 `make all` is the beginner-safe local installation. It checks prerequisites,
-installs and starts Ollama with `llama3.2:3b`, builds the standalone for the
+installs and starts Ollama with the `minimal` model, builds the standalone for the
 current architecture, installs it as `~/bin/llmflask`, and installs the
 convenience commands. It does not require Docker. When it finishes, run the
 printed verification and start commands:
@@ -477,10 +476,10 @@ working Docker daemon, and the sandbox image built by `make install-server` or
 
 ```bash
 llmflask --usepool --text "Create a Python log analyzer" \
-  --model ollama/qwen3:8b
+  --model MODELREF
 
 llmflask --usepool --file data.csv --text "Calculate useful statistics" \
-  --model ollama/qwen3:8b
+  --model MODELREF
 
 llmflask result list
 llmflask result inspect RESULT_NAME

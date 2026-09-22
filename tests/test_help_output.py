@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 
-def test_all_tracked_shell_scripts_support_help(project_root):
+def test_all_tracked_executable_shell_scripts_support_help(project_root):
     result = subprocess.run(
         ["git", "ls-files", "*.sh"],
         cwd=project_root,
@@ -17,7 +17,9 @@ def test_all_tracked_shell_scripts_support_help(project_root):
     scripts = [
         line
         for line in result.stdout.splitlines()
-        if line and (project_root / line).is_file()
+        if line
+        and (project_root / line).is_file()
+        and (project_root / line).stat().st_mode & 0o111
     ]
     assert scripts
 

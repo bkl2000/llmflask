@@ -40,6 +40,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Remote LLMFlask pool integration tests")
     parser.add_argument("--host", default=os.getenv("LLMFLASK_TEST_HOST", "127.0.0.1"))
     parser.add_argument("--port", default=os.getenv("LLMFLASK_TEST_PORT", "5000"), type=int)
+    parser.add_argument("--model", help="Full Ollama model reference, e.g. ollama/qwen3.5:9b (default: first available)")
     return parser.parse_args()
 
 
@@ -135,14 +136,14 @@ def test_pool_show_nonexistent(base, result):
         result.failed.append(("test_pool_show_nonexistent", str(e)))
 
 
-def test_pool_create_small_csv(base, result):
+def test_pool_create_small_csv(base, model, result):
     """Create a pool from samples/adr.csv and verify success."""
     try:
         sample = Path(__file__).resolve().parent.parent / "samples" / "adr.csv"
         assert sample.is_file(), f"Sample not found: {sample}"
 
         files = {"file": (sample.name, sample.read_bytes(), "text/csv")}
-        data = {"request": "Count the rows in the CSV file. Write the count and a short summary to output/summary.txt.", "model": "ollama/qwen3:8b"}
+        data = {"request": "Count the rows in the CSV file. Write the count and a short summary to output/summary.txt.", "model": model}
 
         events = api_sse(base, "/api/pool", files=files, data=data)
         assert events, "No SSE events received"
@@ -163,14 +164,14 @@ def test_pool_create_small_csv(base, result):
         return None
 
 
-def test_pool_rerun(base, pool_name, result):
+def test_pool_rerun(base, pool_name, model, result):
     """Re-run an existing pool."""
     if not pool_name:
         result.skipped.append(("test_pool_rerun", "no pool from previous test"))
         return
 
     try:
-        events = api_sse(base, f"/api/pools/{pool_name}/run", data={"model": "ollama/qwen3:8b"})
+        events = api_sse(base, f"/api/pools/{pool_name}/run", data={"model": model})
         assert events, "No SSE events"
         done = events[-1]
         assert done.get("status") == "done"
@@ -237,14 +238,14 @@ def test_pool_delete_single(base, pool_name, result):
         result.failed.append(("test_pool_delete_single", str(e)))
 
 
-def test_pool_create_large_csv(base, result):
+def test_pool_create_large_csv(base, model, result):
     """Create a pool from samples/energy.csv."""
     try:
         sample = Path(__file__).resolve().parent.parent / "samples" / "energy.csv"
         assert sample.is_file(), f"Sample not found: {sample}"
 
         files = {"file": (sample.name, sample.read_bytes(), "text/csv")}
-        data = {"request": "The CSV uses ; as delimiter. First 5 lines: Id;Datum;Zeit;IL1;UL1. Count the rows. Write results to output/summary.txt.", "model": "ollama/qwen3:8b"}
+        data = {"request": "The CSV uses ; as delimiter. First 5 lines: Id;Datum;Zeit;IL1;UL1. Count the rows. Write results to output/summary.txt.", "model": model}
 
         events = api_sse(base, "/api/pool", files=files, data=data)
         assert events, "No SSE events"
@@ -285,6 +286,12 @@ def main():
     args = parse_args()
     base = base_url(args.host, args.port)
     result = Result()
+    models = api_get(base, "/api/models")
+    model = args.model or next(
+        (entry["name"] for entry in models if entry.get("provider") == "ollama"), None
+    )
+    if not model:
+        raise SystemExit("No local Ollama model available; pass --model MODELREF")
 
     print(f"=== LLMFlask Remote Pool Tests ===")
     print(f"   Server: {args.host}:{args.port}")
@@ -302,8 +309,8 @@ def main():
 
     # Phase 2: lifecycle (small CSV)
     print("\n--- Phase 2: Pool Lifecycle (adr.csv) ---")
-    pool_name = test_pool_create_small_csv(base, result)
-    test_pool_rerun(base, pool_name, result)
+    pool_name = test_pool_create_small_csv(base, model, result)
+    test_pool_rerun(base, pool_name, model, result)
     test_pool_download(base, pool_name, result)
     test_pool_debug(base, pool_name, result)
     test_pool_delete_single(base, pool_name, result)
@@ -311,7 +318,7 @@ def main():
     # Phase 3: large CSV
     print("\n--- Phase 3: Large CSV (energy.csv) ---")
     time.sleep(0.5)
-    large_pool = test_pool_create_large_csv(base, result)
+    large_pool = test_pool_create_large_csv(base, model, result)
 
     # Phase 4: cleanup
     print("\n--- Phase 4: Cleanup ---")

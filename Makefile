@@ -21,7 +21,7 @@ help:
 	@echo "  make install-server  AI stack + sandbox image + LLMFlask venv (needs Docker)"
 	@echo "  make install-ai      Full AI stack (Docker for SearXNG/sandbox, not Ollama)"
 	@echo "                       Auto-selects CPU or NVIDIA GPU models; MODEL_PROFILE=cpu overrides"
-	@echo "  make install-ai-minimal  Ollama + llama3.2:3b only (quick test, no SearXNG/OpenCode/sandbox)"
+	@echo "  make install-ai-minimal  Ollama + minimal model only (quick test, no SearXNG/OpenCode/sandbox)"
 	@echo ""
 	@echo "  For client:"
 	@echo "  make standalone      Build single binary for current architecture"
@@ -66,7 +66,7 @@ install-ai: fix-permissions
 
 install-ai-minimal: fix-permissions
 	./tools/check-install-prerequisites.sh --local
-	MODELS="llama3.2:3b" ./components/local-ai/setup-local-ai.sh
+	env -u MODELS MODEL_PROFILE=minimal ./components/local-ai/setup-local-ai.sh
 
 install-searxng: fix-permissions
 	./tools/check-install-prerequisites.sh --full

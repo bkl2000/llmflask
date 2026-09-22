@@ -328,12 +328,13 @@ run_model_selection() {
   [[ "$output" == *"Selected: llama3.2:3b qwen3:4b-instruct-2507-q4_K_M"* ]]
 }
 
-@test "8 GB keeps the existing 8 GB models" {
+@test "8 GB selects the updated models" {
   export MOCK_NVIDIA_VRAM_MB=8192
   run_model_selection
   [ "$status" -eq 0 ]
   [[ "$output" == *"Model profile: 8gb"* ]]
-  [[ "$output" == *"Selected: llama3.1:8b qwen3:8b"* ]]
+  [[ "$output" == *"Selected: llama3.1:8b qwen3.5:9b"* ]]
+  [[ "$output" != *"qwen3:8b"* ]]
 }
 
 @test "Nominal 12 GB adds both larger models at 11 GiB detected" {
@@ -342,7 +343,7 @@ run_model_selection() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"NVIDIA VRAM detected: 11 GB"* ]]
   [[ "$output" == *"Model profile: 12gb"* ]]
-  [[ "$output" == *"Selected: llama3.1:8b qwen3:8b qwen3:14b gemma4:12b"* ]]
+  [[ "$output" == *"Selected: llama3.1:8b qwen3.5:9b qwen3:14b gemma4:12b"* ]]
 }
 
 @test "Explicit CPU profile overrides NVIDIA detection" {
@@ -362,12 +363,47 @@ run_model_selection() {
   export MODEL_PROFILE=8gb
   run_model_selection
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Selected: llama3.1:8b qwen3:8b"* ]]
+  [[ "$output" == *"Selected: llama3.1:8b qwen3.5:9b"* ]]
 
   export MODEL_PROFILE=12gb
   run_model_selection
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Selected: llama3.1:8b qwen3:8b qwen3:14b gemma4:12b"* ]]
+  [[ "$output" == *"Selected: llama3.1:8b qwen3.5:9b qwen3:14b gemma4:12b"* ]]
+}
+
+@test "Automatic profile boundaries stay at 8, 11, and 23 GiB" {
+  local vram expected
+  for vram in 8191 8192 11263 11264 23551 23552; do
+    case "$vram" in
+      8191) expected=4gb ;;
+      8192|11263) expected=8gb ;;
+      11264|23551) expected=12gb ;;
+      23552) expected=24gb ;;
+    esac
+    export MOCK_NVIDIA_VRAM_MB="$vram"
+    run_model_selection
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Model profile: $expected"* ]]
+  done
+}
+
+@test "install-ai-minimal selects exactly the minimal model" {
+  export MODELS="override:unwanted"
+  run make -n install-ai-minimal
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"env -u MODELS MODEL_PROFILE=minimal ./components/local-ai/setup-local-ai.sh"* ]]
+
+  run env -u MODELS MODEL_PROFILE=minimal bash -c '
+    export LLMFLASK_TEST_FUNCTIONS_ONLY=1
+    source components/local-ai/setup-local-ai.sh
+    select_models
+    printf "Selected: %s\n" "${MODELS[*]}"
+  '
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Model profile: minimal (explicit MODEL_PROFILE)"* ]]
+  [[ "$output" == *"Selected: llama3.2:3b"* ]]
+  [[ "$output" != *"Selected: llama3.2:3b "* ]]
+  [[ "$output" != *"override:unwanted"* ]]
 }
 
 @test "Unavailable NVIDIA VRAM uses the CPU profile" {
@@ -391,7 +427,7 @@ run_model_selection() {
   run_model_selection
   [ "$status" -eq 1 ]
   [[ "$output" == *"Invalid MODEL_PROFILE 'unknown'"* ]]
-  [[ "$output" == *"Valid profiles: cpu, 4gb, 8gb, 12gb, 24gb."* ]]
+  [[ "$output" == *"Valid profiles: cpu, 4gb, 8gb, 12gb, 24gb, minimal."* ]]
 }
 
 @test "32B remains opt-in at 23 GiB detected" {
@@ -399,17 +435,17 @@ run_model_selection() {
   run_model_selection
   [ "$status" -eq 0 ]
   [[ "$output" == *"Model profile: 24gb"* ]]
-  [[ "$output" == *"Selected: llama3.1:8b qwen3:8b qwen3:14b gemma4:12b qwen3:32b"* ]]
+  [[ "$output" == *"Selected: llama3.1:8b qwen3.5:9b qwen3:14b gemma4:12b qwen3:32b"* ]]
 
   export MOCK_NVIDIA_VRAM_MB=16384
   run_model_selection
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Selected: llama3.1:8b qwen3:8b qwen3:14b gemma4:12b"* ]]
+  [[ "$output" == *"Selected: llama3.1:8b qwen3.5:9b qwen3:14b gemma4:12b"* ]]
 
   export MOCK_NVIDIA_VRAM_MB=23552 INSTALL_32B=no
   run_model_selection
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Selected: llama3.1:8b qwen3:8b qwen3:14b gemma4:12b"* ]]
+  [[ "$output" == *"Selected: llama3.1:8b qwen3.5:9b qwen3:14b gemma4:12b"* ]]
 }
 
 @test "Explicit 24 GB profile permits opt-in 32B" {
@@ -417,7 +453,7 @@ run_model_selection() {
   run_model_selection
   [ "$status" -eq 0 ]
   [[ "$output" == *"Model profile: 24gb (explicit MODEL_PROFILE)"* ]]
-  [[ "$output" == *"Selected: llama3.1:8b qwen3:8b qwen3:14b gemma4:12b qwen3:32b"* ]]
+  [[ "$output" == *"Selected: llama3.1:8b qwen3.5:9b qwen3:14b gemma4:12b qwen3:32b"* ]]
 }
 
 @test "User not in ollama group -> usermod called" {

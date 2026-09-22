@@ -30,11 +30,12 @@ Install/update Ollama and local models:
   - models selected automatically for CPU or NVIDIA GPU memory
 
 Environment:
-  MODEL_PROFILE=cpu|4gb|8gb|12gb|24gb  override automatic selection
+  MODEL_PROFILE=cpu|4gb|8gb|12gb|24gb|minimal  override automatic selection
   MODELS="qwen3:14b llama3.1:8b"  explicit model list
   INSTALL_32B=yes                  install qwen3:32b on a nominal 24 GB GPU
 
 MODELS takes priority over MODEL_PROFILE. CPU-only systems are detected automatically.
+The minimal profile installs one small model for make all / install-ai-minimal.
 
 Full stack:
   make install-ai
@@ -57,11 +58,8 @@ fi
 INSTALL_32B="${INSTALL_32B:-no}"
 MODEL_GEMMA4_12B_MIN_VRAM_GB=11
 MODEL_32B_MIN_VRAM_GB=23
-CPU_MODELS=("qwen3:4b-instruct-2507-q4_K_M")
-VRAM4_MODELS=("llama3.2:3b" "${CPU_MODELS[@]}")
-VRAM8_MODELS=("llama3.1:8b" "qwen3:8b")
-VRAM12_ADDITIONS=("qwen3:14b" "gemma4:12b")
-VRAM24_OPTIONAL=("qwen3:32b")
+# shellcheck source=components/local-ai/model-profiles.sh
+source "$(dirname "${BASH_SOURCE[0]}")/model-profiles.sh"
 
 OLLAMA_LINK_DIR="${OLLAMA_LINK_DIR:-/usr/share/ollama}"
 OLLAMA_REAL_DIR="${OLLAMA_REAL_DIR:-$OLLAMA_LINK_DIR}"
@@ -180,6 +178,7 @@ select_models() {
     fi
 
     case "$MODEL_PROFILE" in
+      minimal) MODELS=("${MINIMAL_MODELS[@]}") ;;
       cpu) MODELS=("${CPU_MODELS[@]}") ;;
       4gb) MODELS=("${VRAM4_MODELS[@]}") ;;
       8gb) MODELS=("${VRAM8_MODELS[@]}") ;;
@@ -190,7 +189,7 @@ select_models() {
         fi
         ;;
       *)
-        echo "ERROR: Invalid MODEL_PROFILE '$MODEL_PROFILE'. Valid profiles: cpu, 4gb, 8gb, 12gb, 24gb." >&2
+        echo "ERROR: Invalid MODEL_PROFILE '$MODEL_PROFILE'. Valid profiles: cpu, 4gb, 8gb, 12gb, 24gb, minimal." >&2
         return 1
         ;;
     esac
@@ -343,11 +342,11 @@ Check for new model versions:
   https://ollama.com/search
 
 VRAM recommendations:
-- CPU:   qwen3:4b-instruct-2507-q4_K_M
-- 4 GB:  llama3.2:3b + qwen3:4b-instruct-2507-q4_K_M (~2.5 GB), context 2048 for speed
-- 8 GB:  llama3.1:8b + qwen3:8b, context 4096 for speed
-- 12 GB: 8B with context 8192; qwen3:14b + gemma4:12b as quality tests
-- 24+ GB: qwen3:32b opt-in test
+- CPU:   cpu profile
+- 4 GB:  4gb profile, context 2048 for speed
+- 8 GB:  8gb profile, context 4096 for speed
+- 12 GB: 12gb profile, context 8192
+- 24+ GB: 24gb profile; 32B model is opt-in
 
 Performance:
 - CPU shares in "ollama ps" indicate offloading; reduce context/model.

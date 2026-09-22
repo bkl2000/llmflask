@@ -460,7 +460,7 @@ def test_make_install_ai_minimal_uses_only_small_model(project_root):
     makefile = (project_root / "Makefile").read_text()
 
     assert "install-ai-minimal:" in makefile
-    assert 'MODELS="llama3.2:3b" ./components/local-ai/setup-local-ai.sh' in makefile
+    assert 'env -u MODELS MODEL_PROFILE=minimal ./components/local-ai/setup-local-ai.sh' in makefile
     assert not any(
         line.strip().startswith("\t./components/") and "setup-local-ai.sh" not in line
         for line in makefile.split("install-ai-minimal:", 1)[1].splitlines()[:4]
